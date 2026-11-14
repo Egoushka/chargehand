@@ -68,9 +68,38 @@ public class PullRequestTitleTests
     [Fact]
     public void A_title_the_request_gives_is_used_as_it_is_and_a_blank_one_falls_back_to_the_goal()
     {
-        Assert.Equal("Pair the app by QR", PullRequestTitle.Of("  Pair the app by QR ", Long));
-        Assert.Equal("Pair the app with a server by QR code (TRK-71)", PullRequestTitle.Of(null, Long));
-        Assert.Equal("Pair the app with a server by QR code (TRK-71)", PullRequestTitle.Of(" ", Long));
+        Assert.Equal("chore: Pair the app by QR", PullRequestTitle.Of("  Pair the app by QR ", Long));
+        Assert.Equal("chore: Pair the app with a server by QR code (TRK-71)", PullRequestTitle.Of(null, Long));
+        Assert.Equal("chore: Pair the app with a server by QR code (TRK-71)", PullRequestTitle.Of(" ", Long));
+    }
+
+    [Theory]
+    [InlineData("feat: add a retry", "feat: add a retry")]
+    [InlineData("fix(gateway): close the leak", "fix(gateway): close the leak")]
+    [InlineData("chore!: drop the old flag", "chore!: drop the old flag")]
+    [InlineData("Pair the app by QR", "chore: Pair the app by QR")]
+    [InlineData("feature: add a retry", "chore: feature: add a retry")]
+    public void A_title_already_shaped_as_a_conventional_commit_is_kept_and_any_other_gets_the_chore_type(string title, string expected) =>
+        Assert.Equal(expected, PullRequestTitle.Of(title, "goal"));
+
+    [Fact]
+    public void A_subject_the_added_type_or_tag_would_push_past_100_characters_is_cut_at_a_word_so_the_title_check_still_passes()
+    {
+        var long93 = new string('a', 93);
+        Assert.Equal(93, long93.Length);
+        var title = PullRequestTitle.Of(long93, "goal");
+        Assert.Equal($"chore: {long93}", title);
+        Assert.True(title.Length - "chore: ".Length <= 100);
+
+        var over = new string('a', 36) + " " + new string('b', 64);
+        Assert.Equal(101, over.Length);
+        Assert.Equal($"chore: {new string('a', 36)}", PullRequestTitle.Of(over, "goal"));
+
+        var partial = PullRequestTitle.Of(over, "goal", "[partial] ");
+        Assert.Equal("chore: [partial] " + new string('a', 36), partial);
+
+        var alreadyTyped = "feat: " + over;
+        Assert.Equal($"feat: {new string('a', 36)}", PullRequestTitle.Of(alreadyTyped, "goal"));
     }
 
     [Fact]
@@ -102,7 +131,7 @@ public class PullRequestTitleTests
         await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: Long, Title: "Pair the app by QR")), "run-batch-title", Token, default);
 
         var input = Assert.Single(rig.Handover.Inputs);
-        Assert.Equal("Pair the app by QR", input.Title);
+        Assert.Equal("chore: Pair the app by QR", input.Title);
         Assert.Contains($"Task: t1\n\nGoal:\n\n{Long}", input.Body);
     }
 
@@ -113,7 +142,7 @@ public class PullRequestTitleTests
         await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: Long), new DrivenTask("t2", Goal: "Add a retry\n\nWith a backoff.")), "run-batch-derived", Token, default);
 
         var (first, second) = (rig.Handover.Inputs.Single(i => i.Body.Contains("Task: t1", StringComparison.Ordinal)), rig.Handover.Inputs.Single(i => i.Body.Contains("Task: t2", StringComparison.Ordinal)));
-        Assert.Equal(("Pair the app with a server by QR code (TRK-71)", "Add a retry"), (first.Title, second.Title));
+        Assert.Equal(("chore: Pair the app with a server by QR code (TRK-71)", "chore: Add a retry"), (first.Title, second.Title));
         Assert.Contains($"Goal:\n\n{Long}", first.Body);
         Assert.Contains("Goal:\n\nAdd a retry\n\nWith a backoff.", second.Body);
     }
@@ -136,6 +165,6 @@ public class PullRequestTitleTests
         rig.Engine.Release();
         await rig.Run.RunAsync(state.Request, state.RunId, Token, default, null, () => false, state);
 
-        Assert.Equal("Pair the app by QR", Assert.Single(rig.Handover.Inputs).Title);
+        Assert.Equal("chore: Pair the app by QR", Assert.Single(rig.Handover.Inputs).Title);
     }
 }

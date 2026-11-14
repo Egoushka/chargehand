@@ -83,7 +83,7 @@ public class DrivenContinuationTests
         Assert.Equal(3, rig.Engine.Started.Count);
         var handover = Assert.Single(rig.Handover.Inputs);
         Assert.True(handover.Partial);
-        Assert.Equal("[partial] Add a retry", handover.Title);
+        Assert.Equal("chore: [partial] Add a retry", handover.Title);
         Assert.Contains("turn limit after 240 turns", handover.Body);
         Assert.Equal(rig.Engine.Started[2].RunId, handover.RunId);
         Assert.Equal($"chargehand/{rig.Engine.Started[0].RunId}", handover.Branch);
@@ -102,12 +102,12 @@ public class DrivenContinuationTests
         using var rig = new DrivenRunTests.Rig(outcomes: (_, g) => Progressing(g));
         await rig.Run.RunAsync(Request(new DrivenTask("t1", Goal: goal)), BatchId, Token, default);
         var handover = Assert.Single(rig.Handover.Inputs);
-        Assert.Equal("[partial] Pair the app with a server by QR code (TRK-71)", handover.Title);
+        Assert.Equal("chore: [partial] Pair the app with a server by QR code (TRK-71)", handover.Title);
         Assert.Contains($"\n\nGoal:\n\n{goal}", handover.Body);
 
         using var titled = new DrivenRunTests.Rig(outcomes: (_, g) => Progressing(g));
         await titled.Run.RunAsync(Request(new DrivenTask("t1", Goal: goal, Title: "Pair the app by QR")), BatchId, Token, default);
-        Assert.Equal("[partial] Pair the app by QR", Assert.Single(titled.Handover.Inputs).Title);
+        Assert.Equal("chore: [partial] Pair the app by QR", Assert.Single(titled.Handover.Inputs).Title);
     }
 
     [Theory]
@@ -218,7 +218,7 @@ public class DrivenContinuationTests
         Assert.Single(rig.Engine.Started);
         var handover = Assert.Single(rig.Handover.Inputs);
         Assert.True(handover.Partial);
-        Assert.StartsWith("[partial] ", handover.Title);
+        Assert.StartsWith("chore: [partial] ", handover.Title);
         Assert.Contains("Which database?", handover.Body);
         Assert.Contains("Keep the old API?", handover.Body);
         var row = Row(result);
