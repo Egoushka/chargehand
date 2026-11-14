@@ -24,7 +24,7 @@ public sealed record PrSnapshot(string NodeId, int Number, string HeadSha, strin
 
 /// <summary>What the integrator does on a forge (ADR 0046), each call as the GitHub App (on GitLab, with the forge token). Every merge is pinned to a head commit and goes through the repository's rules:
 /// there is no call here that bypasses one. It is a different interface from <see cref="IPullRequests"/>, which still opens drafts and nothing else; <see cref="IForge"/> joins them.</summary>
-public interface IIntegrationHost : IBranchRules, ICiHistory
+public partial interface IIntegrationHost : IBranchRules, ICiHistory
 {
     /// <summary>The forge's name in the words chargehand writes about it.</summary>
     string Name => "GitHub";
