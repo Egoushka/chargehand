@@ -386,4 +386,14 @@ public class VerifierTests
         Assert.Equal("none", verifier.SandboxKind);
         Assert.False(verifier.Network);
     }
+
+    /// <summary>Issue #911: even with the install step in place, npx should refuse rather than silently fetch an unrelated
+    /// same-named package for a tool call the script forgot to vet.</summary>
+    [Fact]
+    public async Task Verification_refuses_an_npx_auto_install()
+    {
+        using var dir = new TempDir();
+        var outcome = await Sh().RunAsync(Script("echo \"npm_config_yes=$npm_config_yes\""), dir.Path, TimeSpan.FromSeconds(20), default);
+        Assert.Contains("npm_config_yes=false", outcome.OutputTail, StringComparison.Ordinal);
+    }
 }
