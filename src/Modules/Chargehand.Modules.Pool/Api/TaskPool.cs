@@ -135,6 +135,9 @@ public sealed class TaskPool(SqlitePoolStore store, TaskPoolSettings settings, I
     /// <summary>The unreleased workers with the count of items each holds.</summary>
     public Task<IReadOnlyList<PoolLiveWorker>> LiveWorkersAsync(int limit, CancellationToken ct) => store.LiveWorkersAsync(limit, ct);
 
+    /// <summary>Whether a queued or claimed item already works on the issue.</summary>
+    public Task<bool> HasOpenItemAsync(string repository, int issue, CancellationToken ct) => store.HasOpenItemAsync(repository, issue, ct);
+
     public Task<PoolWorker?> WorkerAsync(string worker, CancellationToken ct) => store.WorkerAsync(worker, ct);
 
     public Task<ResumeCard?> CardAsync(PoolScope scope, CancellationToken ct) => store.CardAsync(scope, ct);

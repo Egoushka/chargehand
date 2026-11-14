@@ -32,9 +32,9 @@ internal sealed class PoolKit : IDisposable
 
     public FakeStarter Starter { get; } = new();
 
-    public async Task<PoolItem> AddAsync(string area, string title, int priority = 0, int? pullRequest = null, string repository = "owner/repo", string? body = null)
+    public async Task<PoolItem> AddAsync(string area, string title, int priority = 0, int? pullRequest = null, string repository = "owner/repo", string? body = null, int? issue = null, string? size = null)
     {
-        var result = await Pool.EnqueueAsync(new EnqueueRequest(repository, area, title, body ?? "body of " + title, priority, pullRequest), CancellationToken.None);
+        var result = await Pool.EnqueueAsync(new EnqueueRequest(repository, area, title, body ?? "body of " + title, priority, pullRequest, Issue: issue, Size: size), CancellationToken.None);
         Assert.Null(result.Refusal);
         Time.Advance(TimeSpan.FromSeconds(1));
         return result.Item!.Item;

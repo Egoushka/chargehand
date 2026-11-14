@@ -10,7 +10,7 @@ public sealed record PoolClaim(IReadOnlyList<PoolItem> Items, ResumeCard? Card);
 /// <summary>The pool's rows in one SQLite file: items, workers and resume cards (ADR 0099).</summary>
 public sealed partial class SqlitePoolStore : IDisposable
 {
-    public const int Version = 1;
+    public const int Version = 2;
 
     private const string Schema = """
         CREATE TABLE IF NOT EXISTS items (
@@ -56,7 +56,7 @@ public sealed partial class SqlitePoolStore : IDisposable
     private const string DoneIndex = "CREATE INDEX IF NOT EXISTS items_done ON items (status, done_at);";
 
     private const string Columns =
-        "key, source, repository, area, title, body, priority, pull_request, enqueued_at, status, worker, reason, claimed_at, done_at";
+        "key, source, repository, area, title, body, priority, pull_request, enqueued_at, status, worker, reason, claimed_at, done_at, issue, size";
 
     private readonly string connection;
     private readonly SemaphoreSlim writer = new(1, 1);
@@ -76,7 +76,7 @@ public sealed partial class SqlitePoolStore : IDisposable
         if (version > Version)
             throw new InvalidOperationException($"pool store version {version} is newer than this build ({Version})");
         Execute(db, "PRAGMA journal_mode=WAL;");
-        Execute(db, version < Version ? Schema + $"PRAGMA user_version={Version};" + DoneIndex : DoneIndex);
+        Execute(db, version < Version ? "BEGIN;" + Schema + (version < 2 ? AddIssueAndSize : "") + $"PRAGMA user_version={Version};COMMIT;" + DoneIndex : DoneIndex);
         return new SqlitePoolStore(cs);
     }
 
@@ -97,15 +97,15 @@ public sealed partial class SqlitePoolStore : IDisposable
                     return null;
             }
             var key = "p-" + Guid.NewGuid().ToString("N");
-            Command(db, tx, $"INSERT INTO items ({Columns}) VALUES ($key, $source, $repo, $area, $title, $body, $priority, $pr, $at, 'queued', NULL, NULL, NULL, NULL);",
+            Command(db, tx, $"INSERT INTO items ({Columns}) VALUES ($key, $source, $repo, $area, $title, $body, $priority, $pr, $at, 'queued', NULL, NULL, NULL, NULL, $issue, $size);",
                 ("$key", key), ("$source", request.Source), ("$repo", request.Repository), ("$area", request.Area),
                 ("$title", request.Title), ("$body", request.Body), ("$priority", request.Priority),
-                ("$pr", request.PullRequest), ("$at", Stamp(now))).ExecuteNonQuery();
+                ("$pr", request.PullRequest), ("$at", Stamp(now)), ("$issue", request.Issue), ("$size", request.Size)).ExecuteNonQuery();
             using var count = Command(db, tx, "SELECT COUNT(*) FROM items WHERE repository = $repo AND area = $area AND status = 'queued';",
                 ("$repo", request.Repository), ("$area", request.Area));
             var position = Convert.ToInt32(count.ExecuteScalar(), CultureInfo.InvariantCulture);
             var item = new PoolItem(key, request.Source, request.Repository!, request.Area!, request.Title!, request.Body!,
-                request.Priority, request.PullRequest, now, PoolStatus.Queued, null, null, null, null);
+                request.Priority, request.PullRequest, now, PoolStatus.Queued, null, null, null, null, request.Issue, request.Size);
             return new Enqueued(item, position);
         }, ct);
 
@@ -328,7 +328,8 @@ public sealed partial class SqlitePoolStore : IDisposable
                 reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetString(5),
                 reader.GetInt32(6), reader.IsDBNull(7) ? null : reader.GetInt32(7), Parse(reader.GetString(8)), ParseStatus(reader.GetString(9)),
                 reader.IsDBNull(10) ? null : reader.GetString(10), reader.IsDBNull(11) ? null : reader.GetString(11),
-                reader.IsDBNull(12) ? null : Parse(reader.GetString(12)), reader.IsDBNull(13) ? null : Parse(reader.GetString(13))));
+                reader.IsDBNull(12) ? null : Parse(reader.GetString(12)), reader.IsDBNull(13) ? null : Parse(reader.GetString(13)),
+                reader.IsDBNull(14) ? null : reader.GetInt32(14), reader.IsDBNull(15) ? null : reader.GetString(15)));
         return items;
     }
 

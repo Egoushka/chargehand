@@ -19,6 +19,8 @@ public sealed record PoolScope(string Repository, string Area);
 /// <param name="Priority">0 is normal; higher starts first.</param>
 /// <param name="PullRequest">The pull request this item works on, when it is one; such scopes start first.</param>
 /// <param name="Worker">The live worker holding a claimed item.</param>
+/// <param name="Issue">The GitHub issue this item fixes, when it is one; the worker's goal says <c>Fixes #n</c>.</param>
+/// <param name="Size"><c>S</c>, <c>M</c> or <c>L</c>; scales how many workers may hand over to each other. Null counts as <c>M</c>.</param>
 /// <param name="Reason">For a queued item, the check (or <c>starter</c>, <c>lost</c>, <c>ceiling</c>) that last held or released it.</param>
 public sealed record PoolItem(
     string Key,
@@ -34,7 +36,9 @@ public sealed record PoolItem(
     string? Worker,
     string? Reason,
     DateTimeOffset? ClaimedAt,
-    DateTimeOffset? DoneAt)
+    DateTimeOffset? DoneAt,
+    int? Issue = null,
+    string? Size = null)
 {
     public PoolScope Scope => new(Repository, Area);
 }

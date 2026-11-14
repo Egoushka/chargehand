@@ -22,7 +22,24 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
 
     /// <summary>Successive workers of one area that may stop at the ceiling before its items end as failed instead of passing on again (a starting value):
     /// an item that outgrows every context would otherwise cost a ceiling per round forever.</summary>
-    public const int MaxHandOffs = 3;
+    public static int MaxHandOffsFor(string? size) => size switch { "S" => 3, "L" => 12, _ => 6 };
+
+    /// <summary>The biggest size among a worker's items (one worker carries every item of its scope); null when none sets a size. An unset size counts as M.</summary>
+    internal static string? LargestSize(IEnumerable<PoolItem> items)
+    {
+        var rank = 0;
+        string? largest = null;
+        foreach (var item in items)
+        {
+            var r = item.Size switch { "S" => 1, "L" => 3, _ => 2 };
+            if (r > rank)
+            {
+                rank = r;
+                largest = item.Size;
+            }
+        }
+        return largest;
+    }
 
     /// <summary>Whether a worker can start on the repository: <c>enqueue</c> refuses the rest, so a queued item never names a scope the starter always refuses.</summary>
     public bool Knows(string repository) => repositories?.ContainsKey(repository) == true;
@@ -43,7 +60,7 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
         }
         var run = new RunRequest("request/v1", $"Pool: {request.Scope.Repository} {request.Scope.Area}.",
             new RequestContext(false, Scheduler.DrivenPreset, Repository: new RepositoryRef(repository.Path, commit)),
-            Driven: new RequestDriven([new DrivenTask(request.Worker, Goal: Goal(request), Title: Title(request))], MaxParallel: 1, MaxTokensTotal: settings.WorkerTokens));
+            Driven: new RequestDriven([new DrivenTask(request.Worker, Goal: Goal(request), Size: LargestSize(request.Items), Title: Title(request))], MaxParallel: 1, MaxTokensTotal: settings.WorkerTokens));
         var started = await new RunServiceStarter(runs, account).StartAsync(run, false, ct).ConfigureAwait(false);
         if (started.RunId is not { } id)
             return started.Refusal ?? "the run did not start";
@@ -93,13 +110,14 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
                 await target.ReportAsync(worker, result.Usage.Input + result.Usage.Output, ct).ConfigureAwait(false);
             if (Card(result, worker, settings.WorkerTokens) is { } card)
             {
-                if (await HandOffsAsync(target, worker, ct).ConfigureAwait(false) < MaxHandOffs - 1)
+                var maxHandOffs = MaxHandOffsFor(LargestSize(items));
+                if (await HandOffsAsync(target, worker, ct).ConfigureAwait(false) < maxHandOffs - 1)
                 {
                     // The items are still claimed: the release puts them back in the queue and the card goes to the successor.
                     await target.ReleaseAsync(worker, card, ct).ConfigureAwait(false);
                     return;
                 }
-                await target.DoneAsync([.. items.Select(i => i.Key)], $"failed: {MaxHandOffs} workers in a row stopped at the token ceiling", ct).ConfigureAwait(false);
+                await target.DoneAsync([.. items.Select(i => i.Key)], $"failed: {maxHandOffs} workers in a row stopped at the token ceiling", ct).ConfigureAwait(false);
                 return;
             }
             var reason = result is null ? "failed: lost" : result.Status == ResultStatus.Completed ? null : "failed: " + result.Status.ToString().ToLowerInvariant();
@@ -200,6 +218,8 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
                 goal.Append("Pull request #").Append(pr).Append('\n');
             goal.Append(item.Body).Append('\n');
         }
+        foreach (var issue in request.Items.Select(i => i.Issue).OfType<int>().Distinct())
+            goal.Append("\nFixes #").Append(issue).Append(".\n");
         return goal.ToString();
     }
 }
