@@ -111,6 +111,19 @@ public class GitHubIntegrationHostTests
     }
 
     [Fact]
+    public async Task Auto_merge_also_gives_github_the_commits_change_record_trailers()
+    {
+        var withRecord = $"Spec: docs/specs/x.md\nClaim: it works\nChecks: 2 of 2 passed\n{Trailers}";
+        var handler = new Canned((_, body) => Json(body!.Contains("commits(first:100)", StringComparison.Ordinal)
+            ? JsonSerializer.Serialize(new { data = new { node = new { commits = new { nodes = JsonSerializer.Deserialize<JsonElement>(Commits($"feat: a\n\n{withRecord}")) } } } })
+            : """{"data":{"ok":{}}}"""));
+        await Host(handler).EnableAutoMergeAsync(Repo, "PR_node", "abc1234", default);
+
+        using var merge = JsonDocument.Parse(handler.Requests[1].Body!);
+        Assert.Equal(withRecord, merge.RootElement.GetProperty("variables").GetProperty("body").GetString());
+    }
+
+    [Fact]
     public async Task A_merge_now_gives_github_the_run_trailers_once_per_run_as_the_commit_message()
     {
         var handler = new Canned((request, _) => request.Method == HttpMethod.Get ? Json(Commits($"feat: a\n\n{Trailers}", $"fix: b\n\n{Trailers}", "human")) : Json("{}"));
@@ -119,6 +132,17 @@ public class GitHubIntegrationHostTests
         Assert.Equal("https://api.example.test/repos/o/r/pulls/7/commits?per_page=100", handler.Requests[0].Url);
         using var merge = JsonDocument.Parse(handler.Requests[1].Body!);
         Assert.Equal(Trailers, merge.RootElement.GetProperty("commit_message").GetString());
+    }
+
+    [Fact]
+    public async Task A_merge_now_also_gives_github_the_commits_change_record_trailers()
+    {
+        var withRecord = $"Spec: docs/specs/x.md\nClaim: it works\nChecks: 2 of 2 passed\n{Trailers}";
+        var handler = new Canned((request, _) => request.Method == HttpMethod.Get ? Json(Commits($"feat: a\n\n{withRecord}")) : Json("{}"));
+        await Host(handler).MergeNowAsync(Repo, 7, "abc1234", default);
+
+        using var merge = JsonDocument.Parse(handler.Requests[1].Body!);
+        Assert.Equal(withRecord, merge.RootElement.GetProperty("commit_message").GetString());
     }
 
     [Fact]

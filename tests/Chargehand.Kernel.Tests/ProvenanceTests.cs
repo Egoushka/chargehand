@@ -74,4 +74,16 @@ public class ProvenanceTests
         Assert.Equal("Chargehand-Run: r1\nChargehand-Spend: $1.00\nChargehand-Run: r2\nChargehand-Spend: 5 tokens", Provenance.Collect([a1, "human commit", a2, b]));
         Assert.Null(Provenance.Collect(["human commit"]));
     }
+
+    [Fact]
+    public void Collect_also_keeps_the_change_record_trailers_of_a_stamped_commit()
+    {
+        var stamped = Provenance.Apply("feat: a\n\nSpec: docs/specs/x.md\nClaim: it works\nChecks: 2 of 2 passed", new Provenance("r1", Usd: 1m));
+
+        Assert.Equal("Spec: docs/specs/x.md\nClaim: it works\nChecks: 2 of 2 passed\nChargehand-Run: r1\nChargehand-Spend: $1.00", Provenance.Collect([stamped]));
+    }
+
+    [Fact]
+    public void Collect_drops_the_change_record_trailers_of_a_commit_with_no_run_trailer() =>
+        Assert.Null(Provenance.Collect(["feat: a\n\nSpec: docs/specs/x.md\nClaim: it works"]));
 }

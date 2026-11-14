@@ -24,6 +24,10 @@ public sealed partial record Provenance(string RunId, string? Task = null, strin
     public const string ChecksKey = "Chargehand-Checks";
     public const string ResultKey = "Chargehand-Result";
 
+    /// <summary>Trailer keys outside the <c>Chargehand-</c> namespace that a commit's own author writes (the agent-checks change-record rule: <c>Spec</c>, <c>Claim</c>, <c>Checks</c>) and that
+    /// <see cref="Collect"/> carries into the squash commit alongside the run's own trailers, so a squash merge does not drop them (issue 735).</summary>
+    public static readonly IReadOnlyList<string> ChangeRecordKeys = ["Spec", "Claim", "Checks"];
+
     private const int MaxValue = 200;
 
     /// <summary>The trailer lines in their fixed order; a field that is not known has no line.</summary>
@@ -102,7 +106,7 @@ public sealed partial record Provenance(string RunId, string? Task = null, strin
 
     /// <summary>
     /// The trailer blocks of several commit messages as one: the lines of each run's first commit, in order, so a pull request that several runs wrote (a task and the CI fixes on its branch) keeps all of
-    /// them in its squash commit. Null when no message has a <c>Chargehand-Run</c> trailer.
+    /// them in its squash commit, together with any <see cref="ChangeRecordKeys"/> trailers in that commit's own block. Null when no message has a <c>Chargehand-Run</c> trailer.
     /// </summary>
     public static string? Collect(IEnumerable<string> messages)
     {
@@ -112,12 +116,16 @@ public sealed partial record Provenance(string RunId, string? Task = null, strin
         {
             var rows = message.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n').Split('\n').ToList();
             var block = TrailerBlockStart(rows);
-            var ours = block < 0 ? [] : rows.Skip(block).Where(r => r.StartsWith("Chargehand-", StringComparison.OrdinalIgnoreCase)).ToList();
+            var ours = block < 0 ? [] : rows.Skip(block).Where(IsCarried).ToList();
             if (ours.FirstOrDefault(r => r.StartsWith(RunKey + ":", StringComparison.OrdinalIgnoreCase)) is { } run && runs.Add(run))
                 lines.AddRange(ours);
         }
         return lines.Count == 0 ? null : string.Join('\n', lines);
     }
+
+    /// <summary>Whether a trailer row is chargehand's own provenance, or one of the <see cref="ChangeRecordKeys"/> another tool wrote on the same commit.</summary>
+    private static bool IsCarried(string row) =>
+        row.StartsWith("Chargehand-", StringComparison.OrdinalIgnoreCase) || ChangeRecordKeys.Any(key => row.StartsWith(key + ":", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Index of the first row of the last paragraph when every row of it is a trailer (or a continuation of one) and a subject precedes it; -1 otherwise.</summary>
     private static int TrailerBlockStart(List<string> rows)
