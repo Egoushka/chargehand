@@ -134,8 +134,10 @@ overrides follow `ConsoleLimits`. The console gets one new screen.
 - `public sealed record IssueRef(string Repository, int Number)`.
 - `public static IReadOnlyList<IssueRef> BlockerRefs.Parse(string body, string repository)`: matches `#n` or `owner/repo#n`
   that follows "blocked by", "depends on" or "after", case-insensitive, within the same sentence.
-- `public enum SweepSkip { None, Owner, InProgress, Skip, Claimed, AlreadyQueued }`.
-- `public static SweepSkip SweepFilter.Skip(IntakeIssue issue, bool claimed, bool queuedOrRunning)`: maps `you`,
+- `public enum SweepSkip { None, Owner, InProgress, Skip, Claimed, AlreadyQueued, Stranger }`.
+- `public static SweepSkip SweepFilter.Skip(IntakeIssue issue, bool claimed, bool queuedOrRunning, IReadOnlySet<string> trustedAuthors)`:
+  first `Stranger` when `issue.Author` is not in `trustedAuthors` (case-insensitive; the caller passes `allowed_authors`
+  plus the App's login), then maps `you`,
   `in-progress`, `agent:skip`, a live claim, and an open item, run or chargehand PR for the issue.
 
 - [ ] **Step 1: Failing tests**
@@ -290,6 +292,7 @@ not. The run's final answer is parsed as `SplitResult`.
   - Spec acceptance 7: `Blocking_finding_starts_one_review_round` (confidence 0.85 ≥ 0.8). `A_finding_at_0_7_is_not_blocking`.
     `Migrations_folder_cs_file_is_not_merged_and_is_labelled` with `src/X/Migrations/1_add.cs`.
   - `Review_skips_other_bots_but_not_the_app`.
+  - `Review_skips_a_stranger_pull_request_unless_asked`: author not in `allowed_authors` and not the App → no automatic review.
 - [ ] **Step 2–4:** Run → FAIL. Implement. Run → PASS. Run all `Chargehand.Modules.Handover.Tests` → PASS.
 - [ ] **Step 5:** Commit `feat(integrator): merge after chargehand's clean review; wider migration guard`.
 

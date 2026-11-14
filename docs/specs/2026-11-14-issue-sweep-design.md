@@ -91,6 +91,10 @@ label's colour or description when they differ, and never deletes a label.
   request during a sweep returns the running sweep's id.
 - **Read:** every open issue (not pull requests) of every watched repository, paged, with labels, body, `updated_at`
   and the timeline's cross-references.
+- **Only trusted authors:** the sweep takes an issue only when its author is in `allowed_authors` or is the
+  integrator's App (the sub-issues of a split). Any other author's issue is skipped before any model call: on a public
+  repository anyone can open an issue, and its text would become a worker's goal with push access. The owner runs such
+  an issue by applying the `chargehand` label himself, as before.
 - **Filter before any model call:** skip `you`, `in-progress`, `agent:skip`, an issue with a live claim ref (as intake
   does), and an issue that already has an open pool item, a running task or an open chargehand pull request.
   - **Blockers:** an issue is `agent:blocked` without a model call when its body names `#n` after "blocked by",
@@ -137,6 +141,8 @@ issue, and the sweep checks intake's state for a running task.
 
 ### 6. Review and merge
 
+- Automatic review (`review_pulls`) covers only pull requests whose author is in `allowed_authors` or is chargehand's
+  own App; anyone else's pull request is reviewed only on an allowed author's `@chargehand review`, as today.
 - `review_pulls` also covers pull requests opened by chargehand's own App. Today `PullReviews` skips every `[bot]` author,
   so the App's login is let through by name.
 - A blocking finding is one with confidence at or above `automation.github.review_block_confidence` (default 0.8). No
