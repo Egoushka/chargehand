@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Chargehand.Modules.Oversight.Api;
 
-/// <summary><c>chargehand learn publish</c> (issue 900): the merge rate of real driven tasks, each one a GitHub issue chargehand ran unattended to a pull request, as the
+/// <summary><c>chargehand learn publish</c> (issue 900): the merge rate of real driven tasks, each one a goal chargehand ran unattended to a pull request, as the
 /// small JSON file an external status page reads: <c>{ "merged": n, "batches": n, "asOf": "&lt;ISO 8601&gt;" }</c>. Every record in the learning log is a driven task that
 /// ran with nobody watching the session (ADR 0039), so "batches" here counts task attempts, not <see cref="LearningRecord.BatchId"/> (several tasks started together under
 /// one request); that is what the hand count this replaces (docs/baseline-2026-10.md) also counted. Benchmark tasks (<see cref="LearningRecord.Bench"/>) are left out, same

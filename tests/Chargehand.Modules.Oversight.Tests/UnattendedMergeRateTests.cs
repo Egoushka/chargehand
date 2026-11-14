@@ -5,7 +5,7 @@ using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Modules.Oversight.Tests;
 
-/// <summary>Issue 900: <c>chargehand learn publish</c> counts the unattended merge rate of real driven tasks (each one a GitHub issue run to a pull request with nobody
+/// <summary>Issue 900: <c>chargehand learn publish</c> counts the unattended merge rate of real driven tasks (each one a goal run to a pull request with nobody
 /// watching) as <c>{ merged, batches, asOf }</c>, for an external status page. The entries are synthetic.</summary>
 public class UnattendedMergeRateTests
 {
