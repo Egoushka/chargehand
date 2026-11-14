@@ -95,7 +95,7 @@ public sealed partial class MemoryStack(IReadOnlyList<MemorySource> sources)
             if (environmentQuery is null)
                 return (await task, null);
             var environment = Bounded(t => source.Provider.RecallAsync(environmentQuery, source.Scope, t), source.Limits, ct);
-            return ([.. await environment, .. await task], null);
+            return ([.. (await environment).Concat(await task).DistinctBy(m => m.Id)], null);
         }
         catch (Exception e)
         {
