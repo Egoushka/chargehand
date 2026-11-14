@@ -58,6 +58,7 @@ public sealed class JsonlProposalSink(string path) : IProposalSink
             }
             catch (JsonException)
             {
+                // a corrupt line is skipped; the rest of the file still reads.
             }
         }
         return proposals;

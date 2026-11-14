@@ -51,6 +51,7 @@ public sealed class JsonlHumanEditStore(string path) : IHumanEditStore
             }
             catch (JsonException)
             {
+                // a torn or corrupt line is skipped; the rest of the file still reads.
             }
         }
         return [.. bySha.Values.OrderBy(c => c.At)];
