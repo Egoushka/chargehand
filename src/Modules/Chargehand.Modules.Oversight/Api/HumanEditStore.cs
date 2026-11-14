@@ -3,8 +3,13 @@ using System.Text.Json;
 namespace Chargehand.Modules.Oversight.Api;
 
 /// <summary>One human commit a pull request's branch carries after chargehand's own last push, classified (ADR 0045's <c>merged_edited</c>; issue #452). <paramref name="RunId"/> and
-/// <paramref name="PrUrl"/> trace it back to the task and pull request it came from.</summary>
-public sealed record HumanEditCommit(DateTimeOffset At, string RunId, string PrUrl, string Sha, string Category, string Message);
+/// <paramref name="PrUrl"/> trace it back to the task and pull request it came from. <paramref name="ChangedPaths"/> is the commit's own files, kept so a reader can say which files
+/// humans fix most (issue #455), not just which category.</summary>
+public sealed record HumanEditCommit(DateTimeOffset At, string RunId, string PrUrl, string Sha, string Category, string Message, IReadOnlyList<string> ChangedPaths = null!)
+{
+    /// <summary>Never null: a line written before issue #455 added this field reads back with no files, not a missing property.</summary>
+    public IReadOnlyList<string> ChangedPaths { get; init; } = ChangedPaths ?? [];
+}
 
 /// <summary>The human commits <see cref="HumanEditClassifier"/> has already classified, by pull request outcome (ADR 0045). The server owns the file; a reader only sums them up.</summary>
 public interface IHumanEditStore
