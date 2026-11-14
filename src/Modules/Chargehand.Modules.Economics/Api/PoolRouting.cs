@@ -29,6 +29,7 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
     private readonly TimeProvider _time = clock ?? TimeProvider.System;
     private readonly ModelRouter? _router = settings is { Enabled: true } on ? new ModelRouter(on) : null;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _exhausted = new(StringComparer.Ordinal);
+    private volatile IReadOnlyDictionary<string, UsageWindow> _weekly = new Dictionary<string, UsageWindow>();
 
     public bool On => _router is not null;
 
@@ -57,7 +58,8 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
             return new(unrouted, null);
         var now = _time.GetUtcNow();
         var runs = (await log.ReadRunsAsync(ct)).Runs;
-        return _router.Choose(_router.TierFor(kind, size), dataClass, SpendOf(runs), now, Exhausted(now), WeeklyOf(runs)) switch
+        var weekly = _weekly = WeeklyOf(runs);
+        return _router.Choose(_router.TierFor(kind, size), dataClass, SpendOf(runs), now, Exhausted(now), weekly) switch
         {
             RouteChoice choice => new(choice.Model, new RunRoute(choice.Pool, choice.Tier, choice.Model, DataClassName(dataClass)), choice.Warning is { } w ? $"pool '{choice.Pool}': {w}" : null),
             RouteWait wait => throw new PoolsWaitException(wait),
@@ -109,13 +111,14 @@ public sealed class PoolRouting(PoolsSettings? settings, IRunLog log, TimeProvid
         _exhausted[route.Pool] = (budget ? _router.NextRefill(route.Pool, now) : null) ?? PoolBalance.NextDay(now, _router.Zone);
     }
 
-    /// <summary>Whether some pool may take a call now. Spend never removes a pool (limits only warn), so this reads no run log and a caller that cannot await may ask; the router off: false.</summary>
+    /// <summary>Whether some pool may take a call now. Spend never removes a pool (limits only warn), but a paced subscription whose day is spent does, so this honours the weekly readings the last routed call or probe
+    /// read from the run log (a caller that cannot await may ask, at the cost of being as fresh as that read); before any, no pool is paced out. The router off: false.</summary>
     public bool CanRoute(string kind, string? size, DataClass dataClass)
     {
         if (_router is null)
             return false;
         var now = _time.GetUtcNow();
-        return _router.Choose(_router.TierFor(kind, size), dataClass, [], now, Exhausted(now)) is RouteChoice;
+        return _router.Choose(_router.TierFor(kind, size), dataClass, [], now, Exhausted(now), _weekly) is RouteChoice;
     }
 
     private static string DataClassName(DataClass dataClass) => dataClass switch

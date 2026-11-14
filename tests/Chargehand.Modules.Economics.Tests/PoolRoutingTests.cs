@@ -249,6 +249,26 @@ public class PoolRoutingTests
         await Assert.ThrowsAsync<PoolsWaitException>(() => Route(routing));
     }
 
+    [Fact]
+    public async Task CanRoute_agrees_with_the_router_once_a_call_has_read_the_run_log_for_a_pool_whose_day_is_spent()
+    {
+        var routing = Paced([Weekly], Reading(0.5, Now.AddHours(-3)));
+        await routing.WaitUntilAsync("code", null, DataClass.Public, CancellationToken.None);
+
+        Assert.False(routing.CanRoute("code", null, DataClass.Public));
+    }
+
+    [Fact]
+    public async Task CanRoute_counts_the_share_carried_forward_from_earlier_days()
+    {
+        // Tuesday 10th is the window's third day: 3/7 = 0.43 may be used, so 0.3 leaves room that a flat 1/7 would not.
+        var routing = Paced([Weekly], Reading(0.3, Now.AddHours(-3)));
+        await routing.WaitUntilAsync("code", null, DataClass.Public, CancellationToken.None);
+
+        Assert.True(routing.CanRoute("code", null, DataClass.Public));
+        Assert.Equal("subscription", (await Route(routing)).Route!.Pool);
+    }
+
     private sealed class Clock(DateTimeOffset start) : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = start;
