@@ -1,5 +1,6 @@
 using Chargehand.Modules.Forge.Api;
 using Chargehand.Modules.Oversight.Api;
+using Chargehand.Tests;
 
 namespace Chargehand.Modules.Oversight.Tests;
 
@@ -17,7 +18,7 @@ public sealed class HumanEditTrackerTests : IDisposable
 
     private JsonlLearningStore Learning() => new(Path.Combine(_dir, "learning.jsonl"));
 
-    private static LearningRecord Record(string runId, string prUrl, int number, string pushedHead) =>
+    private LearningRecord Record(string runId, string prUrl, int number, string pushedHead) =>
         new("batch", "task-" + runId, runId, Now, "owner/repo", "M", "default", new LearningBudget(null, new BudgetSource("none")),
             new LearningSpend(null, false, 0, 0, 0, 0, 0, 0), LearningOutcome.Completed, null, null, [], false,
             new LearningPr(prUrl, number, Remote, pushedHead));
@@ -89,7 +90,7 @@ public sealed class HumanEditTrackerTests : IDisposable
 
         Assert.Equal(2, written);
         var writtenProposals = await proposals.ReadAsync(CancellationToken.None);
-        Assert.Equal(1, writtenProposals.Count);
+        Assert.Single(writtenProposals);
         Assert.Equal(HumanEditCategory.Lint, writtenProposals[0].Category);
         Assert.Equal(2, writtenProposals[0].Occurrences);
     }
