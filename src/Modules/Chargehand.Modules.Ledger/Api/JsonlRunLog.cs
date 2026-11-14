@@ -129,6 +129,23 @@ public sealed class JsonlRunLog(string path, Action<string>? warn = null) : IRun
         return total.Result();
     }
 
+    public async Task<IReadOnlyList<(DateTimeOffset At, SubscriptionUsage Usage)>> SubscriptionUsageAsync(DateTimeOffset since, CancellationToken ct)
+    {
+        List<(DateTimeOffset At, SubscriptionUsage Usage)> readings = [];
+        await foreach (var line in Lines(ct))
+        {
+            using var doc = line;
+            var root = doc.RootElement;
+            if (StringOf(root, "type") != "call")
+                continue;
+            var call = root.Deserialize(LedgerJsonContext.Default.CallRecord)!;
+            if (call.SubscriptionUsage is { } usage && call.Started >= since)
+                readings.Add((call.Started, usage));
+        }
+        readings.Sort((a, b) => a.At.CompareTo(b.At));
+        return readings;
+    }
+
     /// <summary>One pass over the lines, keeping a few fields of each run: the account standing is read on every console request, so it must not hold the log's records.
     /// Calls older than <paramref name="since"/> are not kept.</summary>
     private async Task<(Dictionary<string, SpendStart> Starts, Dictionary<string, SpendRun> Finished, List<SpendCall> Calls)> ReadSpendRowsAsync(DateTimeOffset since, CancellationToken ct)

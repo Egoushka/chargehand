@@ -25,6 +25,10 @@ public interface IRunLog
     /// <summary>What <paramref name="actor"/>'s runs cost since <paramref name="since"/> (ADR 0050).</summary>
     Task<ActorSpend> SpendAsync(string actor, DateTimeOffset since, CancellationToken ct) => throw new NotSupportedException();
 
+    /// <summary>The call log's subscription-usage readings since <paramref name="since"/>, oldest first (ADR 0098, issue #441): the history a forecast of the
+    /// subscription's windows is built from. Not actor-scoped: a subscription's windows are the provider's own, shared by whatever ran on it.</summary>
+    Task<IReadOnlyList<(DateTimeOffset At, SubscriptionUsage Usage)>> SubscriptionUsageAsync(DateTimeOffset since, CancellationToken ct) => throw new NotSupportedException();
+
     /// <summary>Every record, for the operator console's read routes (batches, inbox, analytics); a log that cannot list them says so with <see cref="NotSupportedException"/>.</summary>
     Task<RunLogData> ReadAllAsync(CancellationToken ct) => throw new NotSupportedException();
 
