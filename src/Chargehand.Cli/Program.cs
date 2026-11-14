@@ -52,6 +52,8 @@ const string Usage = """
       learn phases [--last <runs>]  median wall seconds per run phase (clone, restore, model turns, checks, handover) over the last runs, 30 by default
                                    what finished driven tasks taught, per repository and size class: spend, completion, governor checkpoints,
                                    how their pull requests ended (reads learning.jsonl next to the run log; the server writes it)
+      learn publish [--out <file>] the unattended merge rate: { merged, batches, asOf } over every driven task, for an external status page
+                                   (not bench publish's replay-benchmark rate); prints to stdout, or writes --out
       cost [--json]                dollars per merged pull request per repository and preset over 7 and 30 days, and the spend that left
                                    nothing (run log joined to the outcomes the server recorded in learning.jsonl)
       watch <run-id> [--url <server>]
@@ -314,6 +316,8 @@ switch (argv)
         return await Chargehand.Modules.Oversight.Api.LearningCli.ReplayAsync(replayOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["learn", "report", .. var learnOptions]:
         return await Chargehand.Modules.Oversight.Api.LearningCli.RunAsync(learnOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
+    case ["learn", "publish", .. var publishOptions]:
+        return await Chargehand.Modules.Oversight.Api.UnattendedMergeRate.RunAsync(publishOptions, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow, ct);
     case ["cost", .. var costOptions]:
         return await Chargehand.Modules.Economics.Api.CostCli.RunAsync(costOptions, runLog, learning, Console.Out, Console.Error, DateTimeOffset.UtcNow,
             report => JsonSerializer.Serialize(report, ContractJson.Options), ct);
