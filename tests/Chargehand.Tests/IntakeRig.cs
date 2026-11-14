@@ -60,6 +60,74 @@ internal sealed class FakeGitHub : IIntakeHost
     public Task<IReadOnlyList<IntakeComment>> CommentsSinceAsync(string repository, DateTimeOffset since, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<IntakeComment>>([.. Comments.Where(c => c.UpdatedAt >= since)]);
 
+    /// <summary>The open issues <see cref="OpenIssuesAsync"/> returns; separate from <see cref="Issues"/>, which holds the labelled ones.</summary>
+    public List<IntakeIssue> OpenIssues { get; } = [];
+
+    public Dictionary<int, IssueState> IssueStates { get; } = [];
+
+    /// <summary>Repositories whose open-issue, state, label, issue-create and body-edit calls throw an <see cref="IntakeException"/>.</summary>
+    public HashSet<string> SweepFailFor { get; } = [];
+
+    public List<(string Repository, SweepLabel Label)> SyncedLabels { get; } = [];
+
+    public Dictionary<string, LabelSync> SyncResults { get; } = [];
+
+    public List<(string Repository, int Number, string Label)> LabelAdds { get; } = [];
+
+    public List<(string Repository, int Number, string Label)> LabelRemoves { get; } = [];
+
+    public List<(string Repository, string Title, string Body, int Number)> CreatedIssues { get; } = [];
+
+    public List<(string Repository, int Number, string Body)> EditedBodies { get; } = [];
+
+    private void SweepCheck(string repository)
+    {
+        if (SweepFailFor.Contains(repository))
+            throw new IntakeException("GitHub answered 500 to the request", 500);
+    }
+
+    public Task<IReadOnlyList<IntakeIssue>> OpenIssuesAsync(string repository, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        return Task.FromResult<IReadOnlyList<IntakeIssue>>([.. OpenIssues.Where(i => !i.IsPullRequest)]);
+    }
+
+    public Task<IssueState?> IssueStateAsync(string repository, int number, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        return Task.FromResult(IssueStates.TryGetValue(number, out var state) ? state : (IssueState?)null);
+    }
+
+    public Task<LabelSync> SyncLabelAsync(string repository, SweepLabel label, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        SyncedLabels.Add((repository, label));
+        return Task.FromResult(SyncResults.GetValueOrDefault(label.Name, LabelSync.Unchanged));
+    }
+
+    public Task SetLabelsAsync(string repository, int number, IReadOnlyList<string> add, IReadOnlyList<string> remove, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        LabelAdds.AddRange(add.Select(l => (repository, number, l)));
+        LabelRemoves.AddRange(remove.Select(l => (repository, number, l)));
+        return Task.CompletedTask;
+    }
+
+    public Task<int> CreateIssueAsync(string repository, string title, string body, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        var number = 5000 + CreatedIssues.Count;
+        CreatedIssues.Add((repository, title, body, number));
+        return Task.FromResult(number);
+    }
+
+    public Task EditBodyAsync(string repository, int number, string body, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        EditedBodies.Add((repository, number, body));
+        return Task.CompletedTask;
+    }
+
     public Dictionary<int, IntakePull> Pulls { get; } = [];
 
     public List<ReviewComment> ReviewComments { get; } = [];

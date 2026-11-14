@@ -199,4 +199,79 @@ public class GitHubIntakeHostTests
         var stopped = new Canned((_, _) => throw new TaskCanceledException("A task was canceled.", null, cancelled.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Host(stopped).LabeledAsync("octo/repo", "chargehand", cancelled.Token));
     }
+
+    [Fact]
+    public async Task Open_issues_page_and_skip_pull_requests()
+    {
+        string Item(int n) => $$"""{"number":{{n}},"title":"t","body":"","user":{"login":"a"},"labels":[],"updated_at":"2026-10-13T10:00:00Z"}""";
+        var handler = new Canned((request, _) => Json(request.RequestUri!.Query.EndsWith("&page=1", StringComparison.Ordinal)
+            ? "[" + string.Join(',', Enumerable.Range(1, 99).Select(Item)) + """,{"number":100,"title":"p","body":"","user":{"login":"a"},"labels":[],"updated_at":"2026-10-13T10:00:00Z","pull_request":{"url":"x"}}]"""
+            : "[" + Item(101) + "]"));
+        var issues = await Host(handler).OpenIssuesAsync("octo/repo", default);
+
+        Assert.Equal(100, issues.Count);
+        Assert.DoesNotContain(issues, i => i.Number == 100);
+        Assert.Contains(issues, i => i.Number == 101);
+        Assert.Equal("https://api.example.test/repos/octo/repo/issues?state=open&per_page=100&page=1", handler.Requests[0].Url);
+    }
+
+    [Fact]
+    public async Task Sync_label_creates_updates_and_leaves_extras()
+    {
+        var handler = new Canned((request, _) => request.RequestUri!.AbsolutePath switch
+        {
+            var p when p.EndsWith("/labels/new", StringComparison.Ordinal) => Json("""{"message":"Not Found"}""", HttpStatusCode.NotFound),
+            var p when p.EndsWith("/labels/old", StringComparison.Ordinal) => Json("""{"name":"old","color":"000000","description":"d"}"""),
+            var p when p.EndsWith("/labels/same", StringComparison.Ordinal) => Json("""{"name":"same","color":"ABCDEF","description":"d"}"""),
+            _ => Json("{}"),
+        });
+        var host = Host(handler);
+
+        Assert.Equal(LabelSync.Created, await host.SyncLabelAsync("octo/repo", new SweepLabel("new", "111111", "d"), default));
+        Assert.Equal(LabelSync.Updated, await host.SyncLabelAsync("octo/repo", new SweepLabel("old", "111111", "d"), default));
+        Assert.Equal(LabelSync.Unchanged, await host.SyncLabelAsync("octo/repo", new SweepLabel("same", "abcdef", "d"), default));
+
+        Assert.Equal([HttpMethod.Get, HttpMethod.Post, HttpMethod.Get, HttpMethod.Patch, HttpMethod.Get], handler.Requests.Select(r => r.Method));
+        Assert.EndsWith("/repos/octo/repo/labels", handler.Requests[1].Url);
+        Assert.EndsWith("/repos/octo/repo/labels/old", handler.Requests[3].Url);
+    }
+
+    [Fact]
+    public async Task Issue_state_is_null_on_404()
+    {
+        var handler = new Canned((request, _) => request.RequestUri!.AbsolutePath.EndsWith("/1", StringComparison.Ordinal) ? Json("""{"state":"closed"}""")
+            : request.RequestUri.AbsolutePath.EndsWith("/2", StringComparison.Ordinal) ? Json("""{"state":"open"}""") : Json("{}", HttpStatusCode.NotFound));
+        var host = Host(handler);
+
+        Assert.Equal(IssueState.Closed, await host.IssueStateAsync("octo/repo", 1, default));
+        Assert.Equal(IssueState.Open, await host.IssueStateAsync("octo/repo", 2, default));
+        Assert.Null(await host.IssueStateAsync("octo/repo", 3, default));
+    }
+
+    [Fact]
+    public async Task Labels_are_added_and_removed_and_a_missing_one_is_fine()
+    {
+        var handler = new Canned((request, _) => request.Method == HttpMethod.Delete && request.RequestUri!.AbsolutePath.EndsWith("/gone", StringComparison.Ordinal)
+            ? Json("{}", HttpStatusCode.NotFound) : Json("[]"));
+        await Host(handler).SetLabelsAsync("octo/repo", 5, ["agent:ready"], ["size:S", "gone"], default);
+
+        Assert.Equal([HttpMethod.Post, HttpMethod.Delete, HttpMethod.Delete], handler.Requests.Select(r => r.Method));
+        Assert.Equal("""{"labels":["agent:ready"]}""", handler.Requests[0].Body);
+        Assert.EndsWith("/repos/octo/repo/issues/5/labels/size%3AS", handler.Requests[1].Url);
+    }
+
+    [Fact]
+    public async Task An_issue_is_created_and_its_body_edited()
+    {
+        var handler = new Canned((request, _) => Json(request.Method == HttpMethod.Post ? """{"number":42}""" : "{}"));
+        var host = Host(handler);
+
+        Assert.Equal(42, await host.CreateIssueAsync("octo/repo", "A title", "A body", default));
+        await host.EditBodyAsync("octo/repo", 42, "New body", default);
+
+        Assert.EndsWith("/repos/octo/repo/issues", handler.Requests[0].Url);
+        Assert.Equal("""{"title":"A title","body":"A body"}""", handler.Requests[0].Body);
+        Assert.Equal((HttpMethod.Patch, """{"body":"New body"}"""), (handler.Requests[1].Method, handler.Requests[1].Body));
+        Assert.EndsWith("/repos/octo/repo/issues/42", handler.Requests[1].Url);
+    }
 }
