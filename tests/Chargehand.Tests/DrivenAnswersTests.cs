@@ -103,7 +103,7 @@ public class DrivenAnswersTests
         Assert.EndsWith("The handoff the earlier session left:\n\nDone: the retry loop. Next: pick the database.", task.Goal);
         // The pull request comes from the new session, on the earlier branch; its title is the original goal's.
         var handover = Assert.Single(rig.Handover.Inputs, i => i.RunId == secondRun);
-        Assert.Equal(($"chargehand/{firstRun}", "Add a retry", false), (handover.Branch, handover.Title, handover.Partial));
+        Assert.Equal(($"chargehand/{firstRun}", "chore: Add a retry", false), (handover.Branch, handover.Title, handover.Partial));
         Assert.Contains(rig.Engine.Calls, c => c == $"prepare {secondRun} chargehand/{firstRun} {Commit}");
         // The record of the new task carries the goal with the questions and answers, so a task that asks again continues from all of it.
         var record = await rig.Log.ReadAsync(Row(result).GetProperty("run_id").GetString()!, default);

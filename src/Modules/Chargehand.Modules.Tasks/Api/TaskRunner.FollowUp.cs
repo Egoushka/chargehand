@@ -65,7 +65,7 @@ public sealed partial class TaskRunner
         else if (partial)
         {
             await RestoreBundleAsync(handoverRun.Item1, ct);
-            handed = await HandOverAsync(task, handoverRun, run.Branch, $"[partial] {PullRequestTitle.Of(task.Title, task.Goal)}", PartialBody(task, handoverRun.Item1, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct);
+            handed = await HandOverAsync(task, handoverRun, run.Branch, PullRequestTitle.Of(task.Title, task.Goal, "[partial] "), PartialBody(task, handoverRun.Item1, session, run.Total, run.Continuation, run.StartFailure, ReadProgress(run.OutDirectory)), partial: true, run.Stack, run.Total, ct);
         }
         return (partial, handoverRun, handed);
     }

@@ -32,7 +32,7 @@ public class TaskRunnerTests
         Assert.Equal((TaskState.Failed, ErrorCode.InvalidResult), (outcome.State, outcome.Error));
         var handover = Assert.Single(rig.Handover.Inputs);
         Assert.True(handover.Partial);
-        Assert.StartsWith("[partial] ", handover.Title);
+        Assert.StartsWith("chore: [partial] ", handover.Title);
         Assert.Contains("printed no usable report", handover.Body);
         Assert.Equal("partial: finished without a usable report; draft PR opened", outcome.Detail);
         Assert.NotNull(outcome.PrUrl);
