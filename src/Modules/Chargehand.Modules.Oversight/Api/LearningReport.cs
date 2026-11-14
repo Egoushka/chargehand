@@ -122,6 +122,34 @@ public static class LearningCli
         return 0;
     }
 
+    /// <summary><c>chargehand learn replay [--budget-factor 1.5] [--stop-signal repeated_call]... [--since ...] [--include-bench]</c>: stops, false stops and spend after the stop under a candidate policy (issue 436).</summary>
+    public static async Task<int> ReplayAsync(IReadOnlyList<string> args, ILearningStore store, TextWriter output, TextWriter error, DateTimeOffset now, CancellationToken ct)
+    {
+        const string usage = "usage: chargehand learn replay [--budget-factor <n>] [--stop-signal <signal>]... [--since <days>d|<ISO 8601 time>] [--include-bench]";
+        DateTimeOffset? since = null;
+        var includeBench = false;
+        var factor = 1m;
+        List<string> signals = [];
+        for (var i = 0; i < args.Count; i++)
+        {
+            if (args[i] == "--include-bench")
+                includeBench = true;
+            else if (args[i] == "--budget-factor" && i + 1 < args.Count && decimal.TryParse(args[++i], NumberStyles.Number, CultureInfo.InvariantCulture, out factor) && factor > 0)
+                continue;
+            else if (args[i] == "--stop-signal" && i + 1 < args.Count)
+                signals.Add(args[++i]);
+            else if (args[i] == "--since" && i + 1 < args.Count && LearningReport.ParseSince(args[++i], now) is { } parsed)
+                since = parsed;
+            else
+            {
+                error.WriteLine(usage);
+                return 2;
+            }
+        }
+        output.Write(GovernorReplay.Render(GovernorReplay.Build(await store.ReadAsync(ct, includeBench), new ReplayPolicy(factor, signals), since)));
+        return 0;
+    }
+
     public static async Task<int> RunAsync(IReadOnlyList<string> args, ILearningStore store, TextWriter output, TextWriter error, DateTimeOffset now, CancellationToken ct)
     {
         DateTimeOffset? since = null;
