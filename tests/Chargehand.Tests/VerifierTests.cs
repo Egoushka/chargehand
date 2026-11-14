@@ -89,6 +89,7 @@ public class VerifierTests
     [InlineData("package-lock.json", "npm ci && sh scripts/check.sh")]
     [InlineData("pnpm-lock.yaml", "corepack enable && pnpm install --frozen-lockfile && sh scripts/check.sh")]
     [InlineData("yarn.lock", "corepack enable && yarn install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("bun.lock", "bun install --frozen-lockfile && sh scripts/check.sh")]
     [InlineData("bun.lockb", "bun install --frozen-lockfile && sh scripts/check.sh")]
     public void A_detected_check_script_installs_node_dependencies_first_when_a_lock_file_is_present(string lockFile, string expected)
     {
@@ -111,15 +112,21 @@ public class VerifierTests
         Assert.Equal(["sh", "-c", "npm install && sh scripts/check.sh"], plan!.Argv);
     }
 
-    [Fact]
-    public void A_declared_check_script_also_installs_node_dependencies_first()
+    [Theory]
+    [InlineData("package-lock.json", "npm ci && sh scripts/check.sh")]
+    [InlineData("pnpm-lock.yaml", "corepack enable && pnpm install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("yarn.lock", "corepack enable && yarn install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("bun.lock", "bun install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData(null, "npm install && sh scripts/check.sh")]
+    public void A_declared_check_script_also_installs_node_dependencies_first(string? lockFile, string expected)
     {
         using var dir = new TempDir();
         dir.Write("package.json", "{}");
-        dir.Write("package-lock.json", "");
+        if (lockFile is not null)
+            dir.Write(lockFile, "");
         dir.Write("scripts/check.sh", "#!/bin/sh\nnpx biome ci\n");
         var plan = VerifyCommand.Declared(null, dir.Path);
-        Assert.Equal(["sh", "-c", "npm ci && sh scripts/check.sh"], plan!.Argv);
+        Assert.Equal(["sh", "-c", expected], plan!.Argv);
         Assert.Equal("declared", plan.Source);
     }
 

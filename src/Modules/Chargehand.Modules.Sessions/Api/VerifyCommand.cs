@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chargehand.Contracts;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Oversight.Api;
 
 namespace Chargehand.Modules.Sessions.Api;
@@ -51,27 +52,11 @@ public static class VerifyCommand
         return DetectJvm(dir) is { } jvm ? new(jvm, "detected") : null;
     }
 
-    private static readonly string[] NodeLockFiles = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
-
     /// <summary>`scripts/check.sh`, with a Node install step first when the repository has a `package.json` (issue #911): without
     /// one, the first run has no `node_modules`, and a tool the script calls through `npx` (as chargehand's own `check.sh` calls
     /// Biome) finds no local binary and fetches an unrelated same-named package from the registry instead of running the real one.</summary>
     private static string[] CheckScript(string dir) =>
-        NodeInstall(dir) is { } install ? ["sh", "-c", $"{install} && sh scripts/check.sh"] : ["sh", "scripts/check.sh"];
-
-    private static string? NodeInstall(string dir)
-    {
-        if (!File.Exists(Path.Combine(dir, "package.json")))
-            return null;
-        return NodeLockFiles.FirstOrDefault(f => File.Exists(Path.Combine(dir, f))) switch
-        {
-            "package-lock.json" => "npm ci",
-            "pnpm-lock.yaml" => "corepack enable && pnpm install --frozen-lockfile",
-            "yarn.lock" => "corepack enable && yarn install --frozen-lockfile",
-            "bun.lock" or "bun.lockb" => "bun install --frozen-lockfile",
-            _ => "npm install",
-        };
-    }
+        RepositoryDetector.NodeInstall(dir) is { } install ? ["sh", "-c", $"{install} && sh scripts/check.sh"] : ["sh", "scripts/check.sh"];
 
     /// <summary>check, not test: ktlint and detekt (the lint tools of a JVM/Android build, the session-jdk image has the JDK and
     /// Gradle for, ADR 0048) bind their verification tasks to Gradle's check task by default.</summary>
