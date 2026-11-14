@@ -39,6 +39,7 @@ import {
   presenceText,
   repositoriesText,
   runsText,
+  subscriptionWindowsView,
   windowMeter,
 } from './model';
 import './accounts.css';
@@ -150,6 +151,7 @@ export function Accounts() {
               </div>
               <div className="stack">
                 <ForecastPanel account={selected} />
+                <SubscriptionWindowsPanel account={selected} />
                 <CredentialPanel account={selected} />
                 <LimitsPanel account={selected} />
               </div>
@@ -530,6 +532,42 @@ function ForecastPanel({ account }: { account: AccountBody }) {
         <p className="dim small">
           Priced usage only: a run on a subscription adds nothing to the forecast.
         </p>
+      </div>
+    </Panel>
+  );
+}
+
+/** The subscription's usage windows, when each resets and when the recent rate would use one up first (issue 441, ADR 0098). */
+function SubscriptionWindowsPanel({ account }: { account: AccountBody }) {
+  const rows = subscriptionWindowsView(account);
+  if (!rows) return null;
+  const closing = rows.find((r) => r.closesAt);
+  return (
+    <Panel title="Subscription windows" aside={<span className="dim">from the call log</span>}>
+      <div className="stack stack--tight">
+        <ul className="fleet-list" aria-label="Subscription window forecast">
+          {rows.map((r) => (
+            <li key={r.name} className="fleet-row">
+              <span>{r.name}</span>
+              <span>
+                {r.percent}% used, {r.rate}
+              </span>
+              <span className="dim">resets {formatDateTime(r.resetsAt)}</span>
+            </li>
+          ))}
+        </ul>
+        {closing ? (
+          <Banner
+            tone="warn"
+            icon="alert-triangle"
+            title="A window is forecast to close before it resets"
+          >
+            The {closing.name} window runs out about {formatDateTime(closing.closesAt)} at the
+            recent rate. Large tasks that intake or a schedule would start wait for the reset.
+          </Banner>
+        ) : (
+          <p className="dim small">No window is forecast to close before it resets.</p>
+        )}
       </div>
     </Panel>
   );

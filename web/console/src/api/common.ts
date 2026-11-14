@@ -3,7 +3,7 @@
 // snake_case names and leaves a null field out, so an optional field here is "absent or null"; a timestamp is an ISO 8601 string
 // and a decimal is a number.
 
-import type { Me } from './types';
+import type { Me, SubscriptionForecast } from './types';
 
 /** Fields every console body carries. */
 export interface ContractMeta {
@@ -117,4 +117,6 @@ export interface AccountBody extends Omit<AccountStanding, 'halted' | 'presets'>
   automation?: boolean;
   /** Its automated starts are held while the forecast passes the cap. */
   pause_on_forecast?: boolean;
+  /** The subscription's windows forecast from the call log; the owner's account only (issue 441). */
+  subscription_forecast?: SubscriptionForecast | null;
 }

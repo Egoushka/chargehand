@@ -1,6 +1,7 @@
 using Chargehand.Config;
 using Chargehand.Contracts;
 using Chargehand.Modules.Accounts.Api;
+using Chargehand.Modules.Ledger.Api;
 using Chargehand.Server;
 
 namespace Chargehand.Tests;
@@ -113,5 +114,22 @@ public class AutomationAccountTests
         Assert.Equal((true, true), accounts["bot"]);
         Assert.Equal((false, false), accounts["alice"]);
         Assert.Equal((false, false), accounts[AccountSettings.Owner]);
+    }
+
+    [Theory]
+    [InlineData("L", true)]
+    [InlineData("S", false)]
+    public async Task A_large_task_waits_for_a_subscription_window_forecast_to_close_and_a_small_one_does_not(string size, bool held)
+    {
+        await using var s = await TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), clock: Clock());
+        var call = new CallRecord("r0", "worker", "worker", "s1", "m1", "p/small", Now, 1000, null, null, new PromptChain([], new AsSent("2.0.16", "build", "p/m", "2026-09-26")), Credential: "subscription");
+        UsageWindow Five(double used) => new(used, Now.AddHours(2));
+        await s.Log.AppendAsync(call with { Started = Now.AddMinutes(-60), SubscriptionUsage = new SubscriptionUsage(Five(0.40)) }, default);
+        await s.Log.AppendAsync(call with { Started = Now.AddMinutes(-1), SubscriptionUsage = new SubscriptionUsage(Five(0.94)) }, default);
+        var request = Runs.DraftRequest() with { Driven = new RequestDriven([new DrivenTask("t1", Goal: "one", Size: size)]) };
+
+        var start = await new RunServiceStarter(s.Service).StartAsync(request, default);
+
+        Assert.Equal(held, start.Refusal?.Contains("five_hour window is forecast to close", StringComparison.Ordinal) == true);
     }
 }

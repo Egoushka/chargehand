@@ -28,6 +28,10 @@ public interface IRunLog
     /// <summary>The usage-window readings the calls of <paramref name="actor"/>'s runs carried since <paramref name="since"/>, oldest first (ADR 0100); a log that keeps none returns none.</summary>
     Task<IReadOnlyList<SubscriptionReading>> SubscriptionReadingsAsync(string actor, DateTimeOffset since, CancellationToken ct) => Task.FromResult<IReadOnlyList<SubscriptionReading>>([]);
 
+    /// <summary>The call log's subscription-usage readings since <paramref name="since"/>, oldest first (ADR 0098, issue #441): the history a forecast of the
+    /// subscription's windows is built from. Not actor-scoped: a subscription's windows are the provider's own, shared by whatever ran on it.</summary>
+    Task<IReadOnlyList<(DateTimeOffset At, SubscriptionUsage Usage)>> SubscriptionUsageAsync(DateTimeOffset since, CancellationToken ct) => throw new NotSupportedException();
+
     /// <summary>Every record, for the operator console's read routes (batches, inbox, analytics); a log that cannot list them says so with <see cref="NotSupportedException"/>.</summary>
     Task<RunLogData> ReadAllAsync(CancellationToken ct) => throw new NotSupportedException();
 

@@ -14,6 +14,7 @@ import {
   presenceText,
   repositoriesText,
   runsText,
+  subscriptionWindowsView,
   windowMeter,
 } from './model';
 
@@ -577,5 +578,29 @@ describe('Month forecast', () => {
         expect(await screen.findByText(/2 waiting now/)).toBeTruthy();
       });
     });
+  });
+});
+
+describe('Subscription windows', () => {
+  it('says each window, its use and rate, and which would close before its reset', () => {
+    expect(subscriptionWindowsView(byName('owner'))).toMatchObject([
+      { name: '5-hour', percent: 94, rate: '54% an hour' },
+      { name: '7-day', percent: 31, rate: 'not climbing', closesAt: null },
+    ]);
+    expect(subscriptionWindowsView(byName('ci-bot'))).toBeNull();
+  });
+
+  it('warns on the owner account when a window is forecast to close, and is absent without a forecast', async () => {
+    await open();
+    fireEvent.click(within(rowOf('owner')).getByRole('button', { name: 'owner' }));
+    await waitFor(() =>
+      expect(
+        panel('Subscription windows').getByText('A window is forecast to close before it resets'),
+      ).toBeTruthy(),
+    );
+    fireEvent.click(within(rowOf('ci-bot')).getByRole('button', { name: 'ci-bot' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'Subscription windows' })).toBeNull(),
+    );
   });
 });

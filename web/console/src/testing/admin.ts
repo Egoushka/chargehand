@@ -424,6 +424,21 @@ export function accounts(now = Date.now()): AccountsBody {
           unfinished_runs: 1,
           limits: {},
           credential: { mode: 'server', present: null },
+          subscription_forecast: {
+            five_hour: {
+              window: 'five_hour',
+              utilization: 0.94,
+              resets_at: iso(now, 2 * 60),
+              rate_per_hour: 0.54,
+              closes_at: iso(now, 6),
+            },
+            seven_day: {
+              window: 'seven_day',
+              utilization: 0.31,
+              resets_at: iso(now, 3 * DAY),
+              rate_per_hour: 0,
+            },
+          },
         },
         [12.4, 231.5],
         now,
