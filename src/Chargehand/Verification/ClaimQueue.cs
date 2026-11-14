@@ -93,6 +93,8 @@ public sealed class ClaimQueue(string path, TimeProvider? clock = null)
 
     public async Task<ClaimRecord?> FindAsync(string id, CancellationToken ct) => Parse(await Text(ct)).GetValueOrDefault(id);
 
+    public async Task<IReadOnlyList<ClaimRecord>> AllAsync(CancellationToken ct) => [.. Parse(await Text(ct)).Values];
+
     private async Task<string> Text(CancellationToken ct)
     {
         if (!File.Exists(path))
@@ -125,4 +127,17 @@ public sealed class ClaimQueue(string path, TimeProvider? clock = null)
         await using var file = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
         await file.WriteAsync(line, ct);
     }
+}
+
+/// <summary>One line of a claims seed file (<c>evals/claim-bounty-seed.jsonl</c>, spec decision 1): a claim not yet in the
+/// queue, keyed by <see cref="ClaimRecord.IdOf"/> so re-seeding the same file twice adds nothing new.</summary>
+public sealed record ClaimSeed(string Text, ClaimSourceKind SourceKind, string SourceRef, string Commit, string? Preset = null)
+{
+    public ClaimRecord ToRecord() => new(ClaimRecord.IdOf(SourceKind, SourceRef, Text), Text, SourceKind, SourceRef, Commit, ClaimState.Open, DateTimeOffset.UtcNow, Preset);
+}
+
+public static class ClaimSeeds
+{
+    public static IReadOnlyList<ClaimRecord> Read(IEnumerable<string> lines) =>
+        [.. lines.Where(l => l.Trim().Length > 0).Select(l => (JsonNode.Parse(l)!.AsObject().Deserialize<ClaimSeed>(ContractJson.Options) ?? throw new InvalidDataException("empty claim seed line")).ToRecord())];
 }
