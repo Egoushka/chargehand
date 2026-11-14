@@ -117,6 +117,7 @@ public class VerifierTests
     [InlineData("pnpm-lock.yaml", "corepack enable && pnpm install --frozen-lockfile && sh scripts/check.sh")]
     [InlineData("yarn.lock", "corepack enable && yarn install --frozen-lockfile && sh scripts/check.sh")]
     [InlineData("bun.lock", "bun install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("bun.lockb", "bun install --frozen-lockfile && sh scripts/check.sh")]
     [InlineData(null, "npm install && sh scripts/check.sh")]
     public void A_declared_check_script_also_installs_node_dependencies_first(string? lockFile, string expected)
     {
