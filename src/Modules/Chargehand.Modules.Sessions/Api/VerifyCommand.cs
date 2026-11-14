@@ -25,14 +25,14 @@ public static class VerifyCommand
     /// <c>scripts/check.sh</c>. Null: none, and CI is the only check.</summary>
     public static VerifyPlan? Declared(IReadOnlyList<string>? requested, string directory) =>
         requested is { Count: > 0 } && !IsNoOp(requested) ? new VerifyPlan(requested, "request")
-        : File.Exists(Path.Combine(directory, "scripts", "check.sh")) ? new VerifyPlan(["sh", "scripts/check.sh"], "declared") : null;
+        : File.Exists(Path.Combine(directory, "scripts", "check.sh")) ? new VerifyPlan(CheckScript(directory), "declared") : null;
 
     private static VerifyPlan? Detect(string dir)
     {
         // A repository's own check script is its real test command (docs/guide/driven.md, "scripts/check.sh"); prefer it
         // over a guessed ecosystem command, the way chargehand's own onboarding (RepositoryDetector.AddScripts) already does.
         if (File.Exists(Path.Combine(dir, "scripts", "check.sh")))
-            return new(["sh", "scripts/check.sh"], "detected");
+            return new(CheckScript(dir), "detected");
         if (DetectFromCi(dir) is { } ci)
             return new(ci, "ci");
         bool Has(string pattern) => Directory.EnumerateFiles(dir, pattern, SearchOption.TopDirectoryOnly).Any();
@@ -49,6 +49,28 @@ public static class VerifyCommand
         if (File.Exists(Path.Combine(dir, "go.mod")))
             return new(["go", "test", "./..."], "detected");
         return DetectJvm(dir) is { } jvm ? new(jvm, "detected") : null;
+    }
+
+    private static readonly string[] NodeLockFiles = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"];
+
+    /// <summary>`scripts/check.sh`, with a Node install step first when the repository has a `package.json` (issue #911): without
+    /// one, the first run has no `node_modules`, and a tool the script calls through `npx` (as chargehand's own `check.sh` calls
+    /// Biome) finds no local binary and fetches an unrelated same-named package from the registry instead of running the real one.</summary>
+    private static string[] CheckScript(string dir) =>
+        NodeInstall(dir) is { } install ? ["sh", "-c", $"{install} && sh scripts/check.sh"] : ["sh", "scripts/check.sh"];
+
+    private static string? NodeInstall(string dir)
+    {
+        if (!File.Exists(Path.Combine(dir, "package.json")))
+            return null;
+        return NodeLockFiles.FirstOrDefault(f => File.Exists(Path.Combine(dir, f))) switch
+        {
+            "package-lock.json" => "npm ci",
+            "pnpm-lock.yaml" => "corepack enable && pnpm install --frozen-lockfile",
+            "yarn.lock" => "corepack enable && yarn install --frozen-lockfile",
+            "bun.lock" or "bun.lockb" => "bun install --frozen-lockfile",
+            _ => "npm install",
+        };
     }
 
     /// <summary>check, not test: ktlint and detekt (the lint tools of a JVM/Android build, the session-jdk image has the JDK and
