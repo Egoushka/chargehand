@@ -5,7 +5,14 @@ namespace Chargehand.Modules.Oversight.Api;
 /// <summary>A rule chargehand proposes about its own pull requests (issue #452), after a human fix of the same <see cref="HumanEditCategory"/> recurred: never pushed by itself, only
 /// written for a person to turn into a repository rule line, a pre-push check, a tracker item or a draft pull request. <paramref name="Examples"/> are the pull requests the proposal
 /// is built from.</summary>
-public sealed record ProposalRecord(DateTimeOffset At, string Category, int Occurrences, string Title, string Body, IReadOnlyList<string> Examples);
+public sealed record ProposalRecord(DateTimeOffset At, string Category, int Occurrences, string Title, string Body, IReadOnlyList<string> Examples)
+{
+    public bool Equals(ProposalRecord? other) =>
+        other is not null && At == other.At && Category == other.Category && Occurrences == other.Occurrences && Title == other.Title && Body == other.Body &&
+        Examples.SequenceEqual(other.Examples);
+
+    public override int GetHashCode() => HashCode.Combine(At, Category, Occurrences, Title, Body, Examples.Count);
+}
 
 /// <summary>Where a <see cref="ProposalRecord"/> goes once <see cref="HumanEditLearner"/> writes one. Writing here is the whole of the action: nothing here pushes a commit, opens a pull
 /// request or calls a tracker on its own.</summary>
