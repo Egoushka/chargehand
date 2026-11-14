@@ -45,8 +45,7 @@ public sealed class SweepState(string path)
     {
         lock (_gate)
         {
-            var entries = Load();
-            entries[key] = new SweepEntry(hash, r.Verdict, r.Size, r.Reason);
+            var entries = new Dictionary<string, SweepEntry>(Load()) { [key] = new SweepEntry(hash, r.Verdict, r.Size, r.Reason) };
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
             var temp = $"{path}.tmp";
             using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -55,6 +54,7 @@ public sealed class SweepState(string path)
                 stream.Flush(flushToDisk: true);
             }
             File.Move(temp, path, overwrite: true);
+            _entries = entries;
         }
         return Task.CompletedTask;
     }

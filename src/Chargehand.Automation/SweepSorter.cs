@@ -29,8 +29,11 @@ internal sealed partial class SweepJsonContext : JsonSerializerContext;
 /// schema, so nothing in the issue can choose a label other than through the model's verdict, and anything off-schema is left to the owner.</summary>
 public sealed partial class ModelSweepSorter(IWorkerRuntime runtime, ModelRef? model) : ISweepSorter
 {
-    public const int MaxBody = 6000;
-    public const int MaxClaudeMd = 4000;
+    /// <summary>Cuts are in UTF-8 bytes, on a code-point boundary.</summary>
+    public const int MaxBody = 8192;
+    public const int MaxClaudeMd = 2048;
+    public const int MaxTitle = 512;
+    public const int MaxLabels = 512;
     public const int MaxReason = 200;
 
     private const string Fence = "untrusted-github-text";
@@ -50,7 +53,9 @@ public sealed partial class ModelSweepSorter(IWorkerRuntime runtime, ModelRef? m
             .Append("size: S is a few lines, M is one focused change, L is many files.\n\n");
         if (!string.IsNullOrWhiteSpace(claudeMd))
             text.Append("The repository's own rules, for context:\n").Append(Cut(claudeMd.Trim(), MaxClaudeMd)).Append("\n\n");
-        text.Append("<" + Fence + ">\nIssue title: ").Append(Fenced(Regex.Replace(issue.Title, @"\s+", " ").Trim())).Append("\n\nIssue body:\n")
+        text.Append("<" + Fence + ">\nIssue title: ").Append(Fenced(Cut(Regex.Replace(issue.Title, @"\s+", " ").Trim(), MaxTitle)))
+            .Append("\nIssue labels: ").Append(Fenced(Cut(Regex.Replace(string.Join(", ", issue.Labels), @"\s+", " ").Trim(), MaxLabels)))
+            .Append("\n\nIssue body:\n")
             .Append(issue.Body.Trim().Length == 0 ? "(empty)" : Fenced(Cut(issue.Body.Trim(), MaxBody))).Append("\n</" + Fence + ">\n");
         return text.ToString();
     }
@@ -83,13 +88,48 @@ public sealed partial class ModelSweepSorter(IWorkerRuntime runtime, ModelRef? m
         var size = answer?.Size?.Trim().ToUpperInvariant();
         if (verdict is null || size is not ("S" or "M" or "L"))
             return Unsorted;
-        var reason = Regex.Replace(answer!.Reason ?? "", @"\s+", " ").Trim();
-        return new(verdict.Value, size, reason.Length <= MaxReason ? reason : reason[..MaxReason]);
+        return new(verdict.Value, size, Plain(answer!.Reason));
     }
 
     private static string Fenced(string text) => FenceTag().Replace(text, "[$1");
 
-    private static string Cut(string text, int max) => text.Length <= max ? text : text[..max].TrimEnd() + " [cut]";
+    /// <summary>The reason is posted as a comment: one plain line that pings no one, links nowhere and opens no HTML.</summary>
+    private static string Plain(string? reason)
+    {
+        var text = Regex.Replace(MarkdownLink().Replace(reason ?? "", "$1"), @"\s+", " ").Trim()
+            .Replace("@", "@\u200B", StringComparison.Ordinal).Replace("<", "&lt;", StringComparison.Ordinal);
+        text = CutChars(text, MaxReason).Trim();
+        return text.Length == 0 ? "no reason given" : text;
+    }
+
+    private static string CutChars(string text, int max)
+    {
+        if (text.Length <= max)
+            return text;
+        var end = max;
+        if (char.IsHighSurrogate(text[end - 1]))
+            end--;
+        return text[..end];
+    }
+
+    private static string Cut(string text, int max)
+    {
+        if (Encoding.UTF8.GetByteCount(text) <= max)
+            return text;
+        var bytes = 0;
+        var end = 0;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            bytes += rune.Utf8SequenceLength;
+            if (bytes > max)
+                break;
+            end += rune.Utf16SequenceLength;
+        }
+        return text[..end].TrimEnd() + " [cut]";
+    }
+
+    [GeneratedRegex(@"!?\[([^\]]*)\]\([^)]*\)")]
+    private static partial Regex MarkdownLink();
 
     [GeneratedRegex($"<(/?{Fence})", RegexOptions.IgnoreCase)]
     private static partial Regex FenceTag();

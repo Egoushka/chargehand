@@ -64,4 +64,70 @@ public class SweepSorterTests
         Assert.InRange(at, open + 1, close - 1);
         Assert.Equal(1, prompt.Split("</untrusted-github-text>").Length - 1);
     }
+
+    private static bool NoLoneSurrogate(string t)
+    {
+        for (var i = 0; i < t.Length; i++)
+            if (char.IsHighSurrogate(t[i]) && i + 1 < t.Length && char.IsLowSurrogate(t[i + 1]))
+                i++;
+            else if (char.IsSurrogate(t[i]))
+                return false;
+        return true;
+    }
+
+    private static string Between(string prompt, string open, string close)
+    {
+        var a = prompt.IndexOf(open, StringComparison.Ordinal) + open.Length;
+        return prompt[a..prompt.LastIndexOf(close, StringComparison.Ordinal)];
+    }
+
+    [Fact]
+    public async Task A_long_multibyte_body_is_cut_to_8192_bytes_without_a_lone_surrogate()
+    {
+        var runtime = new Scripted("x");
+        await Sort(runtime, Issue(string.Concat(Enumerable.Repeat("\U0001F600", 5000))));
+        var body = Between(runtime.LastPrompt!, "Issue body:\n", "\n</untrusted-github-text>");
+        Assert.True(NoLoneSurrogate(body));
+        Assert.InRange(System.Text.Encoding.UTF8.GetByteCount(body.Replace(" [cut]", "")), 1, 8192);
+    }
+
+    [Fact]
+    public async Task Claude_md_is_cut_to_2048_bytes()
+    {
+        var runtime = new Scripted("x");
+        await new ModelSweepSorter(runtime, null).SortAsync(Issue(), "owner/app", string.Concat(Enumerable.Repeat("\U0001F600", 3000)), CancellationToken.None);
+        var rules = Between(runtime.LastPrompt!, "for context:\n", "\n\n<untrusted-github-text>");
+        Assert.True(NoLoneSurrogate(rules));
+        Assert.InRange(System.Text.Encoding.UTF8.GetByteCount(rules.Replace(" [cut]", "")), 1, 2048);
+    }
+
+    [Fact]
+    public async Task Labels_are_inside_the_fence()
+    {
+        var runtime = new Scripted("x");
+        await Sort(runtime, new IntakeIssue(7, "Typo", "b", "someone", false, ["bug", "ui"], DateTimeOffset.UnixEpoch));
+        var fenced = Between(runtime.LastPrompt!, "<untrusted-github-text>", "</untrusted-github-text>");
+        Assert.Contains("bug", fenced);
+        Assert.Contains("ui", fenced);
+    }
+
+    [Fact]
+    public async Task The_reason_is_plain_and_inert()
+    {
+        var r = await Sort(new Scripted("""{"verdict":"ready","size":"S","reason":"@octo see [x](http://e.test) ![i](http://e.test/i.png) <b>bold</b>\n\nok"}"""), Issue());
+        Assert.DoesNotContain("@octo", r.Reason);
+        Assert.Contains("@\u200Bocto", r.Reason);
+        Assert.DoesNotContain("](", r.Reason);
+        Assert.DoesNotContain("<", r.Reason);
+        Assert.DoesNotContain("\n", r.Reason);
+        Assert.Equal("no reason given", (await Sort(new Scripted("""{"verdict":"ready","size":"S"}"""), Issue())).Reason);
+    }
+
+    [Fact]
+    public async Task A_reason_cut_through_an_emoji_keeps_whole_code_points()
+    {
+        var r = await Sort(new Scripted("{\"verdict\":\"ready\",\"size\":\"S\",\"reason\":\"" + new string('a', 199) + "\U0001F600tail\"}"), Issue());
+        Assert.True(NoLoneSurrogate(r.Reason));
+        Assert.True(r.Reason.Length <= 200);
+    }
 }
