@@ -39,6 +39,9 @@ internal sealed class RunServiceStarter(RunService runs, AccountSettings? accoun
     {
         if (runs.Halted)
             return new BatchStart(null, RunService.HaltedMessage);
+        // A large task started shortly before a subscription window closes would lose its run to the window (issue 441); intake asks again at the next poll.
+        if (request.Driven?.Tasks.Any(t => t.Size == "L") == true && UsageForecasts.LargeTaskHoldReason(await runs.SubscriptionForecastAsync(ct), runs.Now) is { } wait)
+            return new BatchStart(null, wait);
         var actor = Principal.Owner.Name;
         var asked = request;
         // Admitted without an account too: a paused credential refuses the start there as well, and intake retries it.

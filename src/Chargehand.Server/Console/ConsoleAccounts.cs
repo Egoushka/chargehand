@@ -17,9 +17,11 @@ public sealed record CredentialBody(string Mode, bool? Present, CredentialPause?
 /// <param name="Automation">Automated starts are charged to this account (<c>automation.account</c>; the owner when none is named, ADR 0076).</param>
 /// <param name="ReservedUsd">Budgets of the account's unfinished runs, counted against its caps beside the spend (ADR 0083).</param>
 /// <param name="Subscription">Use of the subscription against the account's percent caps, per window; null when it sets none (ADR 0100).</param>
+/// <param name="SubscriptionForecast">The subscription's five-hour and seven-day windows forecast from the call log (ADR 0098, issue 441); the owner's account only, as the windows are the server credential's. Null: no reading.</param>
 /// <param name="PauseOnForecast">Its automated starts are held while <see cref="Forecast"/> passes the cap.</param>
 public sealed record AccountBody(string Name, bool Owner, bool Driven, IReadOnlyList<string>? Repositories, AccountLimits Limits, StandingSpend Spend, int UnfinishedRuns, CredentialBody Credential,
-    IReadOnlyList<KeyBody> Keys, SpendForecast? Forecast = null, bool Automation = false, bool PauseOnForecast = false, decimal ReservedUsd = 0, SubscriptionStanding? Subscription = null);
+    IReadOnlyList<KeyBody> Keys, SpendForecast? Forecast = null, bool Automation = false, bool PauseOnForecast = false, decimal ReservedUsd = 0, SubscriptionStanding? Subscription = null,
+    SubscriptionForecast? SubscriptionForecast = null);
 
 /// <summary><c>accounts/v1</c>: the owner and every account the profile declares, with caps, spend against them, and the state of their keys and credentials. Owner only.</summary>
 public sealed record AccountsBody(string ContractVersion, DateTimeOffset GeneratedAt, IReadOnlyList<AccountBody> Accounts, IReadOnlyList<string> NotRecorded);
@@ -41,6 +43,7 @@ internal static class ConsoleAccounts
         var stored = keys?.List() ?? [];
         var used = use?.Read() ?? new Dictionary<string, DateTimeOffset>();
         var declared = c.Settings.Accounts ?? [];
+        var windows = await c.Runs.SubscriptionForecastAsync(ct);
         List<AccountBody> accounts = [];
         foreach (var name in declared.Select(a => a.Name).Prepend(AccountSettings.Owner))
         {
@@ -54,7 +57,7 @@ internal static class ConsoleAccounts
                 c.Runs.Unfinished(name), Credential(c, account),
                 [.. stored.Where(k => k.Account == name).OrderBy(k => k.Created).Select(k => new KeyBody(k.Id, k.Label, k.Created, k.Revoked, used.TryGetValue(k.Id, out var at) ? at : null))],
                 SpendForecasts.Of(month.Usd, trailing.Usd, account?.MaxUsdPerMonth, now), name == (c.Profile?.Automation?.Account ?? AccountSettings.Owner), account?.PauseOnForecast ?? false, c.Runs.ReservedUsd(name),
-                account is null ? null : await c.Runs.SubscriptionStandingAsync(account, account.Driven, ct)));
+                account is null ? null : await c.Runs.SubscriptionStandingAsync(account, account.Driven, ct), account is null ? windows : null));
         }
         return new AccountsBody(Contract, now, accounts, NotRecorded);
     }

@@ -194,6 +194,22 @@ export interface Me {
   forecast?: SpendForecast | null;
 }
 
+/** One subscription usage window forecast from the call log (ADR 0098, issue 441). */
+export interface UsageWindowForecast {
+  window: string;
+  /** The latest reading's share of the window; above 1 means past its cap. */
+  utilization: number;
+  resets_at: string;
+  rate_per_hour: number;
+  /** When that rate would use the window up before it resets; absent: it will not. */
+  closes_at?: string | null;
+}
+
+export interface SubscriptionForecast {
+  five_hour?: UsageWindowForecast | null;
+  seven_day?: UsageWindowForecast | null;
+}
+
 /** Where the UTC month's spend is heading: the month so far plus the last 7 days' rate until it ends. */
 export interface SpendForecast {
   rate_per_day: number;

@@ -129,6 +129,23 @@ public sealed class JsonlRunLog(string path, Action<string>? warn = null) : IRun
         return total.Result();
     }
 
+    public async Task<IReadOnlyList<(DateTimeOffset At, SubscriptionUsage Usage)>> SubscriptionUsageAsync(DateTimeOffset since, CancellationToken ct)
+    {
+        List<(DateTimeOffset At, SubscriptionUsage Usage)> readings = [];
+        await foreach (var line in Lines(ct))
+        {
+            using var doc = line;
+            var root = doc.RootElement;
+            if (StringOf(root, "type") != "call")
+                continue;
+            var call = root.Deserialize(LedgerJsonContext.Default.CallRecord)!;
+            if (call.SubscriptionUsage is { } usage && call.Started >= since)
+                readings.Add((call.Started, usage));
+        }
+        readings.Sort((a, b) => a.At.CompareTo(b.At));
+        return readings;
+    }
+
     public async Task<IReadOnlyList<SubscriptionReading>> SubscriptionReadingsAsync(string actor, DateTimeOffset since, CancellationToken ct)
     {
         HashSet<string> runs = [];

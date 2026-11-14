@@ -173,6 +173,15 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
         return SpendForecasts.Of(month.Usd + committedUsd, trailing.Usd, account.MaxUsdPerMonth, now);
     }
 
+    /// <summary>The subscription's usage windows forecast from the last 7 days of the call log (ADR 0098, issue 441); null without a run log or a reading.</summary>
+    public async Task<SubscriptionForecast?> SubscriptionForecastAsync(CancellationToken ct)
+    {
+        if (log is null)
+            return null;
+        var now = Now;
+        return UsageForecasts.Of(await log.SubscriptionUsageAsync(now.AddDays(-UsageForecasts.SevenDayLength.Days), ct), now);
+    }
+
     /// <summary>The dollar budgets that <paramref name="actor"/>'s unfinished top-level runs may still spend (ADR 0083): a batch's <c>max_usd_total</c>, a run's <c>budget_usd</c>.</summary>
     public decimal ReservedUsd(string actor) => _runs.Values.Where(r => !r.IsChild && r.Actor == actor).Sum(r => r.ReservedUsd);
 

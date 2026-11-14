@@ -223,3 +223,28 @@ function automationText(account: AccountBody, over: boolean): string | null {
     ? `${charged} They are held until the forecast falls under the cap or the month ends; each trigger is tried again at the next poll.`
     : `${charged} They are held if the forecast passes the cap (pause_on_forecast).`;
 }
+
+const WINDOW_WORDS: Record<string, string> = { five_hour: '5-hour', seven_day: '7-day' };
+
+/** The subscription's windows in words, soonest-closing first: null when the server sent no forecast (issue 441). */
+export function subscriptionWindowsView(account: AccountBody) {
+  const f = account.subscription_forecast;
+  if (!f) return null;
+  const rows = [f.five_hour, f.seven_day].flatMap((w) =>
+    w
+      ? [
+          {
+            name: WINDOW_WORDS[w.window] ?? w.window,
+            percent: Math.round(w.utilization * 100),
+            resetsAt: w.resets_at,
+            closesAt: w.closes_at ?? null,
+            rate:
+              w.rate_per_hour > 0
+                ? `${Math.round(w.rate_per_hour * 100)}% an hour`
+                : 'not climbing',
+          },
+        ]
+      : [],
+  );
+  return rows.length ? rows : null;
+}
