@@ -33,6 +33,17 @@ public class ReviewPresetTests
     }
 
     [Fact]
+    public void The_worker_compacts_well_before_its_hard_budget_so_a_long_diff_does_not_cut_the_review_off()
+    {
+        // issue #449: with no trigger_tokens the session never compacts mid-turn (WorkerNode.Watch), so a review
+        // that reads a large diff plus surrounding files just grows until it hits max_input_tokens and is
+        // interrupted. A trigger well under the hard cap lets it compact and keep going instead.
+        var worker = Preset.Load(Repo.Path("presets"), "review").NodeKinds["worker"];
+        Assert.NotNull(worker.Compaction?.TriggerTokens);
+        Assert.True(worker.Compaction!.TriggerTokens < worker.Budget.MaxInputTokens);
+    }
+
+    [Fact]
     public async Task Findings_cite_the_diff_input_and_resolve()
     {
         using var root = new TempDir();
