@@ -109,3 +109,31 @@ public static class FailureClusterReport
             .OrderByDescending(c => c.Count)
             .Take(top)];
 }
+
+/// <summary>The autopsy step after a batch (issue #454): every task of the batch that ended failed or partial and has no autopsy yet gets one, written to the learning log. One that cannot be
+/// classified is reported and skipped, and never changes the batch's result. A cancel is not caught.</summary>
+public static class FailureAutopsies
+{
+    /// <returns>How many autopsies were written.</returns>
+    public static async Task<int> WriteAsync(RunRequest request, string batchId, ILearningStore learning, IFailureAutopsy autopsy, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(learning);
+        ArgumentNullException.ThrowIfNull(autopsy);
+        var written = 0;
+        foreach (var entry in await learning.ReadAsync(ct, includeBench: true))
+        {
+            if (entry.Record.BatchId != batchId || entry.Autopsy is not null || entry.Record.Outcome is not (LearningOutcome.Failed or LearningOutcome.Partial))
+                continue;
+            try
+            {
+                await learning.AppendAsync(await autopsy.ClassifyAsync(new AutopsyInput(request, batchId, entry.Record), ct), ct);
+                written++;
+            }
+            catch (Exception e) when (e is AutopsyException or ChargehandException or HttpRequestException or IOException)
+            {
+                Console.Error.WriteLine($"chargehand: no failure autopsy for task {entry.Record.TaskId} of batch {batchId}: {e.Message}");
+            }
+        }
+        return written;
+    }
+}

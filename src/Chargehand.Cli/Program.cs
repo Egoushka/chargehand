@@ -537,6 +537,7 @@ Chargehand.Driven.DrivenRun? DrivenRunFor(Orchestrator orchestrator)
             new HttpClient { BaseAddress = Chargehand.Modules.Forge.Api.GitLabForge.ApiRoot(remote.Host!, driven.Forge?.BaseUrl) }, token),
         Planner: new Chargehand.Modules.Batches.Api.ModelPlanner(childRun, driven.Planning?.Preset ?? "cheap"),
         Retro: new Chargehand.Modules.Batches.Api.ModelRetro(childRun, driven.Learning?.RetroPreset ?? "cheap"), Runners: sites,
+        Autopsy: new Chargehand.Modules.Oversight.Api.ModelAutopsy(childRun.Invoke, driven.Learning?.AutopsyPreset ?? "cheap"),
         AppToken: AppTokens(driven) is { } appTokens ? (remote, token) => appTokens.GetAsync(remote.Owner, remote.Name, token) : null),
         stateDirectory, learning, records,
         profile.ClaudeCode is { ApiFallbackKeySecret: not null, ApiFallbackDailyUsd: { } fallbackUsd }

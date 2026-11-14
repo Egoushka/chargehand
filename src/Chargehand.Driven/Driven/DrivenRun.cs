@@ -396,8 +396,14 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var steps = _lifecycle.JournalAsync() is { } journal ? await journal : null;
         var (replanned, ran, fallback) = await RunOnRunnersAsync(c, mint, setup, routes, ready, tasks, checkout, steps);
         var retro = await BatchLifecycle.RetroAsync(c, settings.Learning is { Retro: true }, learning, setup.Services.Retro, setup.Services.RetroSink);
+        await AutopsiesAsync(c, settings, setup.Services);
         return BatchLifecycle.Result(c, unresolved, replanned, ran, routes[0].Delivery, setup.Priced, setup.Claude.Version, plan, retro, fallback);
     }
+
+    /// <summary>The failure autopsy of the batch's failed and partial tasks (issue #454); nothing while it is off, no model is wired, or the batch is stopping.</summary>
+    private Task AutopsiesAsync(BatchRunContext c, DrivenSettings settings, DrivenServices services) =>
+        settings.Learning is { Autopsy: true } && learning is not null && services.Autopsy is { } autopsy && !c.Detaching() && !c.Ct.IsCancellationRequested
+            ? FailureAutopsies.WriteAsync(c.Request, c.RunId, learning, autopsy, c.Ct) : Task.CompletedTask;
 
     /// <summary>The budget router's model for the batch (ADR 0095), by the preset's name and the largest task's size; null with the router off, which reads nothing and keeps every refusal in its order.
     /// A wait throws, before anything is created. It is the batch's first answer and its default model: each session of each task asks the router again (D-113), so a refusal in the middle of a task
