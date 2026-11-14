@@ -11,6 +11,7 @@ using Chargehand.Kernel;
 using Chargehand.Modules.Accounts.Api;
 using Chargehand.Modules.Economics.Api;
 using Chargehand.Modules.Events.Api;
+using Chargehand.Modules.Gateway.Api;
 using Chargehand.Modules.Ledger.Api;
 using Chargehand.Modules.Memory.Api;
 using Chargehand.Modules.PeerClones.Api;
@@ -57,6 +58,9 @@ public sealed class Orchestrator(
     IEventLog? events = null)
 {
     public const string NodeKindName = "worker";
+
+    /// <summary>One repository context pack per repository, rebuilt only when its commit changes (issue #435), shared by every run this orchestrator serves.</summary>
+    private readonly RepositoryPackCache _packs = new();
 
     private readonly PoolRouting _routing = routing ?? new PoolRouting(profile.Pools, runLog, classifier: new DataClassifier(profile, publicFree?.Pool), warn: message => Console.Error.WriteLine($"chargehand: {message}"));
 
@@ -438,6 +442,9 @@ public sealed class Orchestrator(
         // Recalled facts go in the prompt text, after the task (ADR 0007 order; ADR 0010 keeps instructions fixed, so
         // siblings still fork). The chain records them as one runtime block per source that contributed.
         // A pool run sends its prompt to free providers: facts retained from other repositories stay out of it, and its claims stay out of memory (ADR 0093).
+        // The repository context pack (ADR 0048, issue #435) is read-only and deterministic, so it goes in the prompt text next to the other
+        // volatile notes, never into the fixed instructions that siblings fork from (ADR 0010).
+        var packNote = kind.Checkout && commit.Length > 0 ? RepositoryPackNote(_packs.GetOrBuild(repository, directory, commit)) : "";
         var stack = local ? memory?.LocalOnly() : publicFree?.Owns(worker) == true ? null : memory;
         var recall = await Recall(stack, request.Text, run, extensions, ct);
         var facts = recall.Prompt;
@@ -451,7 +458,7 @@ public sealed class Orchestrator(
         {
             var nodeRequest = new NodeRequest(runId, node.Id, traceId,
                 new NodeSpec(directory, kind.OpencodeAgent, ParseModel(workerModel), kind.Rules, new Dictionary<string, string> { [IRunCleanup.RunMetadataKey] = runId, ["chargehand.node"] = node.Id }, granted),
-                instructions, TaskText(request, spec, commit, changeNote, inputText, callerBlocks, node, plan.Count, upstream) + facts + ServiceCitationNote(granted) + ExcludedNote(excluded), chain, directory, commit,
+                instructions, TaskText(request, spec, commit, changeNote, inputText, callerBlocks, node, plan.Count, upstream) + packNote + facts + ServiceCitationNote(granted) + ExcludedNote(excluded), chain, directory, commit,
                 (request.Inputs ?? []).Select(i => i.Id).ToHashSet(), inputText, cap, TimeSpan.FromMinutes(15),
                 maxInputTokens, kind.Compaction?.TriggerTokens, fork,
                 workspace is null ? null : async (_, token) =>
@@ -912,6 +919,9 @@ public sealed class Orchestrator(
     /// Workers do not see message ids, so a service tool's reply is cited by quoting it (GitEvidenceResolver). Told in the task
     /// text, only when services are granted: the shipped prompts and the tools hash stay as they are without them.
     /// </summary>
+    /// <summary>Told in the task text, right after it (issue #435): the shipped prompts stay as they are for a node with no checkout.</summary>
+    internal static string RepositoryPackNote(RepositoryPack pack) => $"\n\n{pack.Render()}";
+
     internal static string ServiceCitationNote(IReadOnlyList<ServiceGrant> granted) => granted.Count == 0
         ? ""
         : $"\n\nTo cite what a service tool returned, add evidence of kind session_message whose locator quotes at least {GitEvidenceResolver.MinQuoteLength} characters of the tool's reply exactly as returned (copy it, do not paraphrase or summarize). Never use the reply text as a file or url locator.";
