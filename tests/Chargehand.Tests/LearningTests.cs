@@ -454,6 +454,25 @@ public class LearningTests
         Assert.Equal(PrOutcomes.MergedUnchanged, Assert.Single(await stores.Store.ReadAsync(default)).PrOutcome!.Outcome);
     }
 
+    // Issue #452: the human commits of a merged-and-edited pull request are fetched, classified and recorded once the server has a state directory to keep them in.
+
+    [Fact]
+    public async Task The_server_classifies_a_merged_edited_pull_requests_human_commits_and_does_nothing_without_a_state_directory()
+    {
+        using var stores = new Stores();
+        await stores.Store.AppendAsync(Record("r1", pr: Pr(7, "pushed1")), default);
+        await stores.Store.AppendAsync(new PrOutcomeRecord("r1", Now, PrOutcomes.MergedEdited, "merged1"), default);
+        var host = new FakeIntegrationHost();
+        host.Commits[(7, "pushed1")] = [new PrCommit("sha1", "style: fix lint", ["src/Foo.cs"])];
+
+        using (var noState = new DrivenRunTests.Rig(learning: stores.Store, integration: host))
+            Assert.Equal(0, await noState.Run.RefreshHumanEditsAsync(default));
+
+        using var withState = new DrivenRunTests.Rig(durable: true, learning: stores.Store, integration: host);
+        Assert.Equal(1, await withState.Run.RefreshHumanEditsAsync(default));
+        Assert.Equal(HumanEditCategory.Lint, Assert.Single(await new JsonlHumanEditStore(Path.Combine(withState.StateDirectory, "human-edits.jsonl")).ReadAsync(default)).Category);
+    }
+
     // CHARGEHAND-669: a pull request held only by its base branch's failing required checks is updated once the base turns green, after its task has ended.
 
     private static readonly DrivenIntegrator MergeOnORepoR = new(Repositories: new Dictionary<string, string> { ["o/r"] = "merge" });
