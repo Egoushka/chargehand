@@ -914,14 +914,14 @@ public sealed class Orchestrator(
                 "Set the profile's worker_root to a directory outside your home directory.");
     }
 
+    /// <summary>Told in the task text, right after it (issue #435): the shipped prompts stay as they are for a node with no checkout.</summary>
+    internal static string RepositoryPackNote(RepositoryPack pack) => $"\n\n{pack.Render()}";
+
     /// <summary>Volatile content goes in the prompt text, after the fixed instruction entries (ADR 0010).</summary>
     /// <summary>
     /// Workers do not see message ids, so a service tool's reply is cited by quoting it (GitEvidenceResolver). Told in the task
     /// text, only when services are granted: the shipped prompts and the tools hash stay as they are without them.
     /// </summary>
-    /// <summary>Told in the task text, right after it (issue #435): the shipped prompts stay as they are for a node with no checkout.</summary>
-    internal static string RepositoryPackNote(RepositoryPack pack) => $"\n\n{pack.Render()}";
-
     internal static string ServiceCitationNote(IReadOnlyList<ServiceGrant> granted) => granted.Count == 0
         ? ""
         : $"\n\nTo cite what a service tool returned, add evidence of kind session_message whose locator quotes at least {GitEvidenceResolver.MinQuoteLength} characters of the tool's reply exactly as returned (copy it, do not paraphrase or summarize). Never use the reply text as a file or url locator.";
