@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.25](https://github.com/Egoushka/chargehand/compare/v0.19.24...v0.19.25) (2026-11-14)
+
+
+### Features
+
+* **events:** actor filter and an events MCP tool (D-147) ([#908](https://github.com/Egoushka/chargehand/issues/908)) ([3229553](https://github.com/Egoushka/chargehand/commit/3229553fea87e326d093aad4034ff166286afd0f))
+* **events:** emit chargehand.run.* events into the log ([#899](https://github.com/Egoushka/chargehand/issues/899)) ([#906](https://github.com/Egoushka/chargehand/issues/906)) ([39a894e](https://github.com/Egoushka/chargehand/commit/39a894e08703006850056b854b6bbd4c4514457f))
+* **forge:** carry Spec, Claim and Checks trailers into the squash commit ([#927](https://github.com/Egoushka/chargehand/issues/927)) ([7f498b5](https://github.com/Egoushka/chargehand/commit/7f498b59de548252acdbeddb7c58cd379a5501b9))
+* **gateway:** repository context packs per commit ([#932](https://github.com/Egoushka/chargehand/issues/932)) ([2430780](https://github.com/Egoushka/chargehand/commit/24307801c03a2e22da42692a85632d046d550e24))
+* **handover:** shape driven pull request titles as Conventional Commits ([#931](https://github.com/Egoushka/chargehand/issues/931)) ([0336313](https://github.com/Egoushka/chargehand/commit/0336313da8a905770e3797ba4d1978db875b551e))
+* **intake:** tell intake which actions the preset allows ([#428](https://github.com/Egoushka/chargehand/issues/428)) ([#913](https://github.com/Egoushka/chargehand/issues/913)) ([fe152ac](https://github.com/Egoushka/chargehand/commit/fe152acc2d422c86b8aa67784353aa181261c82b))
+* **memory:** recall a repository's environment facts at session start ([#434](https://github.com/Egoushka/chargehand/issues/434)) ([#934](https://github.com/Egoushka/chargehand/issues/934)) ([a17b676](https://github.com/Egoushka/chargehand/commit/a17b676ac6dc34b48a2f1b3e7a1292dc35cac6bd))
+* **oversight:** learn from human edits to chargehand pull requests ([#930](https://github.com/Egoushka/chargehand/issues/930)) ([fc68a5b](https://github.com/Egoushka/chargehand/commit/fc68a5bc8be29608589e7cb9cef2a7b658e051a6))
+* **oversight:** replay the learning log under a candidate governor policy ([#436](https://github.com/Egoushka/chargehand/issues/436)) ([#936](https://github.com/Egoushka/chargehand/issues/936)) ([8471f8a](https://github.com/Egoushka/chargehand/commit/8471f8ac38aa7f1865a9e7c32b88041cc23dc3e9))
+* **router:** pace a subscription's weekly cap by its utilization, one share a day with carry-forward ([#937](https://github.com/Egoushka/chargehand/issues/937)) ([03008f5](https://github.com/Egoushka/chargehand/commit/03008f57686869daac7dda57f74874ee5555227d))
+* separate daily caps, dollars for API keys and percent for a subscription ([#938](https://github.com/Egoushka/chargehand/issues/938)) ([8380cc5](https://github.com/Egoushka/chargehand/commit/8380cc587fee6d839b721b1eebd96544ceb24710)), closes [#923](https://github.com/Egoushka/chargehand/issues/923)
+* **warmer:** announce a queued branch on a reused checkout; add worktree sweep script ([#893](https://github.com/Egoushka/chargehand/issues/893), [#894](https://github.com/Egoushka/chargehand/issues/894)) ([#909](https://github.com/Egoushka/chargehand/issues/909)) ([a4b0186](https://github.com/Egoushka/chargehand/commit/a4b01865c2cebc9889e1cf6f67d99af9af333ca9))
+
+
+### Bug Fixes
+
+* **intake:** hold a comment's cursor until its own slot-wait attempt runs ([#925](https://github.com/Egoushka/chargehand/issues/925)) ([b21c3cc](https://github.com/Egoushka/chargehand/commit/b21c3cc4f003c938599d0302faf47a810872bfcd))
+
 ## [0.19.24](https://github.com/Egoushka/chargehand/compare/v0.19.23...v0.19.24) (2026-11-13)
 
 
