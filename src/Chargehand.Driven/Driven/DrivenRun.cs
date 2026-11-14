@@ -36,12 +36,14 @@ namespace Chargehand.Driven;
 /// <param name="AppToken">A GitHub App installation token for a GitHub repository (the integrator's App, ADR 0046), asked for at each push and pull request call; null: no App, so a batch needs
 /// <c>driven.push_secret</c>. <c>driven.push_secret</c> wins when it is set.</param>
 /// <param name="OutageGrace">How long a task waits for a runner that stops answering during its session; <see cref="TaskRunner.DefaultOutageGrace"/> when null.</param>
+/// <param name="Autopsy">Classifies why a task ended failed or partial when <c>driven.learning.autopsy</c> is on (issue #454); null: such a task's record gets no autopsy.</param>
+/// <param name="ClusterSink">Gets the weekly job's top root-cause clusters (issue #454); null: nowhere. No tracker write path exists yet, so none ships.</param>
 public sealed record DrivenServices(IContainerEngine Engine, IWorkspaceEngine Workspace, ISessionVolumes Volumes, Func<PushCredential, IPullRequests> PullRequestsFor, ITaskSource? TaskSource,
     Func<RepositoryRef, string, CancellationToken, Task<DrivenCheckout>> Checkout, IEvidenceResolver Resolver, Func<string, string> Secret,
     Func<string?, Func<ResultContract, EvidenceScope, CancellationToken, Task<ResultContract>>?>? SupportCheckFor = null, Func<ContainerVerifierSettings, PushCredential, IBranchHandover>? HandoverFor = null,
     TimeSpan? Poll = null, IHostSource? Host = null, IIntegrationHost? Integration = null, Func<RemoteRepository, string, IForge>? ForgeFor = null, IBatchPlanner? Planner = null, IStackSeeder? Stacker = null,
     IBatchRetro? Retro = null, IRetroSink? RetroSink = null, IBranchSeeder? Brancher = null, IReadOnlyList<RunnerSite>? Runners = null, TimeSpan? OutageGrace = null,
-    Func<RemoteRepository, CancellationToken, Task<string>>? AppToken = null);
+    Func<RemoteRepository, CancellationToken, Task<string>>? AppToken = null, IFailureAutopsy? Autopsy = null, IFailureClusterSink? ClusterSink = null);
 
 /// <summary>A request with a <c>driven</c> block, from start to the batch's result (ADR 0039): tasks resolved, the batch network up, tasks run under the batch's limits by
 /// <see cref="TaskRunner"/>, the network down, and one <c>result/v1</c> that lists the tasks. Every refusal (driven sessions off, no push credential, no image) is a failed
@@ -613,6 +615,32 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <returns>The outcomes written.</returns>
     public Task<int> RefreshPrOutcomesAsync(CancellationToken ct) =>
         learning is null ? Task.FromResult(0) : new PrOutcomeTracker(learning, ReadHost).RefreshAsync((profile.Driven?.Learning ?? new DrivenLearning()).PrDays, ct);
+
+    /// <summary>How often <see cref="ClusterReportAsync"/> should run.</summary>
+    public TimeSpan ClusterCheckEvery => TimeSpan.FromDays((profile.Driven?.Learning ?? new DrivenLearning()).ClusterCheckDays);
+
+    /// <summary>One pass of the failure autopsy's weekly job (issue #454): the top root-cause clusters of the window's failed and partial tasks, filed to the cluster sink. Does nothing
+    /// without learning records or a sink; a sink that throws is reported and ignored, and files nothing that pass.</summary>
+    /// <returns>The clusters filed.</returns>
+    public async Task<int> ClusterReportAsync(CancellationToken ct)
+    {
+        if (learning is null || services?.ClusterSink is not { } sink)
+            return 0;
+        var settings = profile.Driven?.Learning ?? new DrivenLearning();
+        var clusters = FailureClusterReport.Top(await learning.ReadAsync(ct), DateTimeOffset.UtcNow - TimeSpan.FromDays(settings.ClusterCheckDays), settings.ClusterTop);
+        if (clusters.Count == 0)
+            return 0;
+        try
+        {
+            await sink.PublishAsync(clusters, ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"chargehand: could not file the failure autopsy's top clusters: {e.Message}");
+            return 0;
+        }
+        return clusters.Count;
+    }
 
     /// <summary>One pass that updates a pull request held only by its base branch's failing required checks, once the base turns green (CHARGEHAND-669): the integrator
     /// (<see cref="Integrator.ActAsync"/>) acts once per task, so a pull request still open once its task has ended is otherwise never revisited. Does nothing without learning
