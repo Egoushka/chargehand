@@ -1,6 +1,6 @@
 # The issue sweep: chargehand finds the work, sorts it, does it and merges it
 
-- Status: proposed 2026-11-14 (owner's answers in conversation: process everything; sweep at 08:00, 15:00 and 20:00 plus a
+- Status: accepted 2026-11-14 (owner approved the design, adding the schedule's on/off and days from the console; owner's answers in conversation: process everything; sweep at 08:00, 15:00 and 20:00 plus a
   console button; epics are split first; triage and backlog go through the sorting pass; chargehand reviews and merges
   its own green pull requests; the subscription hold is set from the console). Builds on ADR 0099 (the task pool),
   ADR 0051 (intake from GitHub), ADR 0045 (the governor), ADR 0046 (the integrator), ADR 0097 (earned autonomy),
@@ -164,8 +164,10 @@ Needs you (4)       issue, reason, link
 Recent              merged / failed / split, with the run link
 ```
 
-Settings (overrides, profile is the default; each shows profile, override, effective, as Limits does): sweep times,
-sweep on/off per repository, `subscription_hold_percent`. A repository problem (checkout refused, App cannot push,
+Settings (overrides, profile is the default; each shows profile, override, effective, as Limits does): the sweep's
+schedule (on or off as a whole, the times, and the days of the week it runs, so the owner can turn it off for days he
+does not want it; `automation.sweep.days`, default every day), sweep on/off per repository, and
+`subscription_hold_percent`. `Scan now` works when the schedule is off. A repository problem (checkout refused, App cannot push,
 breaker open) shows once in its row, with the fix in one line. The sweep holds that repository's items with that reason
 instead of starting runs that fail. Pool runs do not pass through intake's breaker (`IntakeBreakers`), so the pool
 gets the same per-repository rule: 3 failed runs in a row hold that repository's items with reason `breaker`, and a
@@ -184,6 +186,7 @@ project 3 (wheelhouse) can show them without polling the console.
 2. A label missing in a repository is created on the next sweep; a label with another colour is updated; an extra label
    is untouched.
 3. `POST /v1/sweep` during a sweep returns the running sweep's id; a non-owner key gets 403.
+   With the schedule off, or today not in its days, no sweep starts at a scheduled time, and `POST /v1/sweep` still runs one.
 4. An issue with the `chargehand` label and an open pool item starts exactly one task.
 5. A subscription session past 100% of its dollar budget is not stopped; an API-key session is.
 6. History budget: with past spends that would give a p80 under the flat M budget, the budget is the flat M budget.
