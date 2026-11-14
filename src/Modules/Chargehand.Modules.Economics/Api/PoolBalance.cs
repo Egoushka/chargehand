@@ -1,3 +1,5 @@
+using Chargehand.Contracts;
+
 namespace Chargehand.Modules.Economics.Api;
 
 /// <summary>One call's spend against a pool: what the router reads balances from. A free call adds no dollars and counts as one request.</summary>
@@ -20,7 +22,7 @@ public sealed record PoolStanding(string Pool, DateTimeOffset? PeriodStart, Date
 /// <summary>A pool's period and its daily allowance with carry-over (ADR 0095): pure, the same spend and time give the same standing. The balance and the allowance are figures to warn by, never a reason to refuse a call.</summary>
 public static class PoolBalance
 {
-    public static PoolStanding Of(PoolSettings pool, IEnumerable<PoolSpend> spend, DateTimeOffset now, TimeZoneInfo zone, bool exhausted = false)
+    public static PoolStanding Of(PoolSettings pool, IEnumerable<PoolSpend> spend, DateTimeOffset now, TimeZoneInfo zone, bool exhausted = false, UsageWindow? weekly = null)
     {
         var today = DayStart(now, zone);
         var (periodStart, refill, horizon, balance) = Period(pool, now, zone);
@@ -31,17 +33,27 @@ public static class PoolBalance
         var mine = spend.Where(s => s.Pool == pool.Name && (periodStart is null || s.At >= periodStart) && s.At <= now).ToList();
         if (exhausted)
             return new(pool.Name, periodStart, refill, horizon, balance - mine.Sum(s => s.Usd), null, 0, false, "exhausted");
+        if (DayShareSpent(pool, weekly, now, zone))
+            return new(pool.Name, periodStart, refill, horizon, null, null, 0, false, "today's share of the weekly cap is spent");
         if (pool.Kind == PoolKinds.Free)
             return Free(pool, mine.Count(s => s.At >= today), periodStart);
         if (balance is null)
             return new(pool.Name, periodStart, refill, horizon, null, null, null, true);
+        return Metered(pool, mine, today, periodStart, refill, horizon, balance.Value);
+    }
+
+    private static PoolStanding Metered(PoolSettings pool, List<PoolSpend> mine, DateTimeOffset today, DateTimeOffset? periodStart, DateTimeOffset? refill, DateTimeOffset? horizon, decimal balanceUsd)
+    {
         var before = mine.Where(s => s.At < today).Sum(s => s.Usd);
         var spentToday = mine.Where(s => s.At >= today).Sum(s => s.Usd);
-        var remaining = balance.Value - before - spentToday;
-        var allowance = horizon is { } end ? (balance.Value - before) / DaysLeft(today, end) : balance.Value - before;
+        var remaining = balanceUsd - before - spentToday;
+        var allowance = horizon is { } end ? (balanceUsd - before) / DaysLeft(today, end) : balanceUsd - before;
         var room = Math.Min(allowance - spentToday, remaining);
         return new(pool.Name, periodStart, refill, horizon, remaining, allowance, room, true, null, room > 0 ? null : remaining <= 0 ? "empty" : "today's allowance is spent", pool.PaceDaily && room <= 0);
     }
+
+    private static bool DayShareSpent(PoolSettings pool, UsageWindow? weekly, DateTimeOffset now, TimeZoneInfo zone) =>
+        pool.PacesUtilization && weekly is not null && WeeklyPacing.Spent(weekly, pool.DailyShare ?? WeeklyPacing.DefaultShare, now, zone);
 
     private static PoolStanding Free(PoolSettings pool, int requestsToday, DateTimeOffset? periodStart)
     {

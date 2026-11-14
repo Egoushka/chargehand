@@ -1,3 +1,5 @@
+using Chargehand.Contracts;
+
 namespace Chargehand.Modules.Economics.Api;
 
 /// <summary>What the router decided for one call (ADR 0095).</summary>
@@ -62,7 +64,8 @@ public sealed class ModelRouter
     /// <summary>The first pool in drain order that may take the call now and pays for a model of <paramref name="tier"/> that may see <paramref name="dataClass"/>. A pool a provider refused, or that
     /// has expired or not started, falls through to the next pool. A tier with no model that may see the data moves the call one tier up, never down. Limits in the settings never remove a pool; a pool with <c>pace_daily</c> whose day is spent is passed over for a later pool that has room, and chosen (with its warning) only when no other pool can take the call.</summary>
     /// <param name="exhausted">Pools a provider refused (a 402, a 429, a used quota): out until their mark lapses.</param>
-    public RouteDecision Choose(int tier, DataClass dataClass, IReadOnlyList<PoolSpend> spend, DateTimeOffset now, IReadOnlySet<string>? exhausted = null)
+    /// <param name="weekly">Each subscription pool's newest seven-day reading: a paced pool whose day's share of it is spent has no room, so the call goes to a later pool or waits until the next day.</param>
+    public RouteDecision Choose(int tier, DataClass dataClass, IReadOnlyList<PoolSpend> spend, DateTimeOffset now, IReadOnlySet<string>? exhausted = null, IReadOnlyDictionary<string, UsageWindow>? weekly = null)
     {
         for (var at = Math.Clamp(tier, 0, TopTier); at <= TopTier; at++)
         {
@@ -75,7 +78,7 @@ public sealed class ModelRouter
             RouteChoice? paced = null;
             foreach (var (pool, model) in candidates)
             {
-                var standing = PoolBalance.Of(pool, spend, now, Zone, exhausted?.Contains(pool.Name) == true);
+                var standing = PoolBalance.Of(pool, spend, now, Zone, exhausted?.Contains(pool.Name) == true, weekly?.GetValueOrDefault(pool.Name));
                 if (standing.HasRoom && !standing.Paced)
                     return new RouteChoice(NameOf(at), pool.Name, model!, standing.RoomUsd, standing.Warning);
                 if (standing.HasRoom)
@@ -104,6 +107,6 @@ public sealed class ModelRouter
     }
 
     /// <summary>Every pool's standing now, in drain order, for a report.</summary>
-    public IReadOnlyList<PoolStanding> Standings(IReadOnlyList<PoolSpend> spend, DateTimeOffset now, IReadOnlySet<string>? exhausted = null) =>
-        [.. (_settings.Order ?? []).Select(p => PoolBalance.Of(p, spend, now, Zone, exhausted?.Contains(p.Name) == true))];
+    public IReadOnlyList<PoolStanding> Standings(IReadOnlyList<PoolSpend> spend, DateTimeOffset now, IReadOnlySet<string>? exhausted = null, IReadOnlyDictionary<string, UsageWindow>? weekly = null) =>
+        [.. (_settings.Order ?? []).Select(p => PoolBalance.Of(p, spend, now, Zone, exhausted?.Contains(p.Name) == true, weekly?.GetValueOrDefault(p.Name)))];
 }

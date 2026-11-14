@@ -230,3 +230,12 @@ amount to pace, `total_usd` or `quota_usd` on a weekly pool; a profile that sets
 
 "Has room" means the pool is not out (expired, not started, refused). A later pool that is itself over a limit still takes the call ahead of a paced pool,
 because limits only warn; pacing moves work only between pools the router would otherwise use, and within the current tier.
+
+## Amended 2026-11-14 (a subscription's weekly cap paced by its utilization)
+
+A weekly pool with `pace_daily: true` and no `quota_usd` is paced by the seven-day utilization the provider reports (ADR 0098), not by dollars. A day may use
+`daily_share` of the cap (default 1/7); what may have been used by the end of today is `min(1, daily_share * days)`, `days` counting from the window's start
+(its reset time less seven days) in the router's zone, so an unused share carries forward and overuse comes off later days. Once the reading reaches it the pool
+has no room: the call goes to the next pool that has room, and with none it waits until the next day starts. This one is not soft, because the point is that a
+day does not take the week; the next day always allows one share more, so no day is locked out. No reading, or a window that has reset, paces nothing. Spec:
+`docs/specs/2026-11-14-weekly-subscription-pacing.md`.

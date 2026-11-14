@@ -213,6 +213,42 @@ public class PoolRoutingTests
         Assert.Equal([new PoolSpend("free", Now, 1.5m), new PoolSpend("credit", Now, 2m)], spend);   // a route with no price counts nothing
     }
 
+    private static readonly PoolSettings Weekly = new("subscription", PoolKinds.Weekly, ["paid/big"], RefillWeekday: "sunday", RefillTime: "09:00", PaceDaily: true, NoTrainingModels: ["*"]);
+
+    private static RunRecord Reading(double utilization, DateTimeOffset finished)
+    {
+        var (_, run) = Fixtures.Run($"run-{utilization}-{finished.Ticks}", "driven", "owner/repo", 0, 0);
+        return run with { Finished = finished, Route = new RunRoute("subscription", "strong", "paid/big"), SubscriptionUsage = new SubscriptionUsage(null, new UsageWindow(utilization, new DateTimeOffset(2026, 11, 15, 9, 0, 0, TimeSpan.Zero))) };
+    }
+
+    private static PoolRouting Paced(IEnumerable<PoolSettings> order, params RunRecord[] runs) =>
+        Routing(new PoolsSettings(Enabled: true, DefaultTier: "strong", Tiers: [new("strong", ["paid/big"])], Order: [.. order]), new FakeLog(runs));
+
+    [Fact]
+    public async Task A_paced_subscription_whose_day_is_spent_in_the_run_log_hands_the_call_to_the_next_pool()
+    {
+        var routing = Paced([Weekly, Credit], Reading(0.5, Now.AddHours(-3)), Reading(0.2, Now.AddHours(-5)));
+
+        Assert.Equal("credit", (await Route(routing)).Route!.Pool);
+    }
+
+    [Fact]
+    public async Task The_newest_reading_decides_and_a_paced_subscription_with_room_takes_the_call()
+    {
+        var routing = Paced([Weekly, Credit], Reading(0.5, Now.AddHours(-5)), Reading(0.2, Now.AddHours(-3)));
+
+        Assert.Equal("subscription", (await Route(routing)).Route!.Pool);
+    }
+
+    [Fact]
+    public async Task A_spent_day_on_the_only_pool_is_held_until_the_next_day_and_the_call_waits()
+    {
+        var routing = Paced([Weekly], Reading(0.5, Now.AddHours(-3)));
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 11, 0, 0, 0, TimeSpan.Zero), await routing.WaitUntilAsync("code", null, DataClass.Public, CancellationToken.None));
+        await Assert.ThrowsAsync<PoolsWaitException>(() => Route(routing));
+    }
+
     private sealed class Clock(DateTimeOffset start) : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = start;

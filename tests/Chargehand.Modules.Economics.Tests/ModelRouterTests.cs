@@ -340,7 +340,7 @@ public class ModelRouterTests
     {
         var problems = Settings(Subscription with { PaceDaily = true }, Free with { PaceDaily = true }).Problems().ToList();
 
-        Assert.Contains("pool 'subscription': pace_daily needs an amount to pace: total_usd, or quota_usd on a weekly pool", problems);
+        Assert.DoesNotContain(problems, p => p.Contains("pool 'subscription'") && p.Contains("pace_daily"));
         Assert.Contains("pool 'free': pace_daily needs an amount to pace: total_usd, or quota_usd on a weekly pool", problems);
         Assert.DoesNotContain(Settings(Paced).Problems(), p => p.Contains("pace_daily"));
     }
