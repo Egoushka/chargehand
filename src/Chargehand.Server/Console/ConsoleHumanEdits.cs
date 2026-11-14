@@ -49,7 +49,7 @@ internal static class ConsoleHumanEdits
         return new HumanEditsBody(Contract, c.Now, repositories, NotRecorded);
     }
 
-    private static HumanEditRepositoryBody Grid(string repository, IReadOnlyList<HumanEditCommit> edits)
+    private static HumanEditRepositoryBody Grid(string repository, List<HumanEditCommit> edits)
     {
         var counts = new Dictionary<(string File, string Category), int>();
         var fileTotals = new Dictionary<string, int>(StringComparer.Ordinal);

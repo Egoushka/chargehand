@@ -9,6 +9,14 @@ public sealed record HumanEditCommit(DateTimeOffset At, string RunId, string PrU
 {
     /// <summary>Never null: a line written before issue #455 added this field reads back with no files, not a missing property.</summary>
     public IReadOnlyList<string> ChangedPaths { get; init; } = ChangedPaths ?? [];
+
+    /// <summary>By value, not by the list's own type: a JSON round trip reads <see cref="ChangedPaths"/> back as a different <see cref="IReadOnlyList{T}"/> implementation than the
+    /// one it was written with, and the record's own generated equality would treat that as a different commit.</summary>
+    public bool Equals(HumanEditCommit? other) =>
+        other is not null && At == other.At && RunId == other.RunId && PrUrl == other.PrUrl && Sha == other.Sha && Category == other.Category && Message == other.Message
+        && ChangedPaths.SequenceEqual(other.ChangedPaths);
+
+    public override int GetHashCode() => HashCode.Combine(At, RunId, PrUrl, Sha, Category, Message);
 }
 
 /// <summary>The human commits <see cref="HumanEditClassifier"/> has already classified, by pull request outcome (ADR 0045). The server owns the file; a reader only sums them up.</summary>
