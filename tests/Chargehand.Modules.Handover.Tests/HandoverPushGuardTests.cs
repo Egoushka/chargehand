@@ -36,32 +36,58 @@ public class HandoverPushGuardTests
         new Handover(new HandoverTests.FakeVerifier(), new HandoverTests.FakePullRequests()).RunAsync(f.Input(with: with), default);
 
     [Theory]
-    [InlineData(".tmp/NuGetScratch/lock.json", "tmpdir")]
-    [InlineData("src/.tmp/x.json", "tmpdir")]
-    [InlineData("packages/restore-1a2b.tmp", "tmp-file")]
-    [InlineData(".scratch-probe.txt", "scratch")]
-    [InlineData(".scratch/probe.sh", "scratch")]
-    public async Task A_branch_with_scratch_output_is_not_pushed(string path, string kind)
+    [InlineData(".tmp/NuGetScratch/lock.json")]
+    [InlineData("src/.tmp/x.json")]
+    [InlineData("packages/restore-1a2b.tmp")]
+    [InlineData(".scratch-probe.txt")]
+    [InlineData(".scratch/probe.sh")]
+    public async Task Scratch_output_beside_a_real_change_is_dropped_and_the_real_change_is_pushed(string path)
     {
         using var f = new HandoverTests.Fixture(edit: dir => Write(dir, path));
 
         var outcome = await Hand(f);
 
-        Assert.Equal(HandoverStatus.NotPushed, outcome.Status);
-        Assert.Equal(ErrorCode.SessionFailed, outcome.Error);
-        Assert.Contains($"{kind}: {path}", outcome.Reason, StringComparison.Ordinal);
-        Assert.Equal("", f.RemoteRef("refs/heads/chargehand/run1"));
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Contains("retry.txt", outcome.ChangedPaths);
+        Assert.DoesNotContain(path, outcome.ChangedPaths);
+        Assert.Equal(outcome.Commit, f.RemoteRef("refs/heads/chargehand/run1"));
+        Assert.DoesNotContain(path, Git(f.Remote, "log", "--name-only", "--format=", $"{f.BaseCommit}..chargehand/run1"), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Scratch_output_a_later_commit_removed_is_still_refused_because_the_history_is_pushed()
+    public async Task A_dropped_scratch_path_is_named_in_the_pull_request_body()
+    {
+        using var f = new HandoverTests.Fixture(edit: dir => Write(dir, ".scratch-zipcheck/Program.cs"));
+        var prs = new HandoverTests.FakePullRequests();
+
+        var outcome = await new Handover(new HandoverTests.FakeVerifier(), prs).RunAsync(f.Input(), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        var body = Assert.Single(prs.Created).Body;
+        Assert.Contains("dropped scratch output", body, StringComparison.Ordinal);
+        Assert.Contains(".scratch-zipcheck/Program.cs", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Scratch_output_a_later_commit_removed_is_dropped_from_every_commit_not_only_refused_for_carrying_it()
     {
         using var f = new HandoverTests.Fixture(edit: dir => Write(dir, ".tmp/nuget.lock"), thenEdit: dir => File.Delete(Path.Combine(dir, ".tmp/nuget.lock")));
 
         var outcome = await Hand(f);
 
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.DoesNotContain(".tmp/nuget.lock", Git(f.Remote, "log", "--name-only", "--format=", $"{f.BaseCommit}..chargehand/run1"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_branch_that_only_adds_scratch_output_has_nothing_left_to_push()
+    {
+        using var f = new HandoverTests.Fixture(file: ".scratch-only/file.txt");
+
+        var outcome = await Hand(f);
+
         Assert.Equal(HandoverStatus.NotPushed, outcome.Status);
-        Assert.Contains("tmpdir: .tmp/nuget.lock", outcome.Reason, StringComparison.Ordinal);
+        Assert.Contains("no change against its base", outcome.Reason, StringComparison.Ordinal);
     }
 
     [Theory]

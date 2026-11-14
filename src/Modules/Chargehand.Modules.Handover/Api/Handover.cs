@@ -154,28 +154,6 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
         return null;
     }
 
-    /// <summary>The branch against its base: it changes something, its history carries no junk (<see cref="GuardJunkAsync"/>), and its diff no secret.</summary>
-    private static async Task<HandoverOutcome?> ScanDiffAsync(HandoverRun run, CancellationToken ct)
-    {
-        var (input, scratch, env, commit) = (run.Input, run.Scratch, run.Env, run.Commit);
-        var names = await GitProcess.RunAsync(scratch, env, ["diff", "--name-only", "-z", input.BaseCommit, commit], GitTimeout, ct);
-        run.Changed = [.. names.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries)];
-        var changed = run.Changed;
-        if (changed.Count == 0)
-            return run.Refuse("the branch has no change against its base", ErrorCode.SessionFailed, commit: commit);
-        var numstat = await GitProcess.RunAsync(scratch, env, ["diff", "--numstat", "--no-renames", "-z", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
-        run.Changes = new ChangeSummary(ParseNumstat(numstat.Stdout), null, false);
-        if (await GuardJunkAsync(run, ct) is { } junk)
-            return junk;
-        var diff = await GitProcess.RunAsync(scratch, env, ["diff", "--no-color", "-U0", input.BaseCommit, commit], GitTimeout, ct, MaxDiffBytes);
-        if (diff.Truncated)
-            return run.Refuse("the diff is too large to scan", ErrorCode.SessionFailed, changed: changed, commit: commit);
-        var findings = DiffScan.Scan(diff.Stdout, run.Secrets, changed);
-        if (findings.Count > 0)
-            return run.Refuse($"the diff looks like it carries a secret ({string.Join(", ", findings.Select(f => $"{f.Kind} in {f.Path}"))}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, findings: findings, commit: commit);
-        return null;
-    }
-
     /// <summary>The branch is pushed with its history: a secret a commit added and a later commit removed is on the remote all the same.</summary>
     private static async Task<HandoverOutcome?> ScanHistoryAsync(HandoverRun run, CancellationToken ct)
     {
@@ -289,7 +267,7 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
             return new(HandoverStatus.PrFailed, "the remote's owner and repository could not be read from its URL", ErrorCode.PrFailed, input.Branch, commit, null, verification, changed, verificationPaths, [], changes, integrity, run.Mutation);
         try
         {
-            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule, run.CiVerdict);
+            var prBody = DescribeBody(input.Body, changed, verification, verificationPaths, input.PolicyNote, integrity, run.NoTestsRule, run.CiVerdict, run.DroppedJunk);
             var (pr, bodyUsed) = await OpenPullRequestAsync(input, repository, prBody, ct);
             var detail = pr.Reused && input.UpdateReused ? await UpdateReusedAsync(run, repository, pr, bodyUsed, ct) : "draft pull request opened";
             Report(input, new HandoverEvent(RunEventKind.PrOpened, detail, pr.Url));
@@ -345,6 +323,9 @@ public sealed partial class Handover(IBranchVerifier verifier, IPullRequests pul
 
         /// <summary>With <see cref="HandoverInput.CiVerifies"/>: what the pull request says verifies it (<see cref="CiVerdictAsync"/>); null otherwise.</summary>
         public string? CiVerdict { get; set; }
+
+        /// <summary>The scratch paths <see cref="ScrubJunkAsync"/> dropped from the branch's commits (issue 914); empty when the history carried none.</summary>
+        public IReadOnlyList<string> DroppedJunk { get; set; } = [];
 
         public HandoverOutcome Refuse(string reason, ErrorCode error, VerificationRecord? verification = null, IReadOnlyList<string>? changed = null, IReadOnlyList<ScanFinding>? findings = null,
             IReadOnlyList<string>? verificationPaths = null, string? commit = null) =>

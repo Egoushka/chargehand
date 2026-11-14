@@ -6,7 +6,7 @@ namespace Chargehand.Modules.Handover.Api;
 public sealed partial class Handover
 {
     private static string DescribeBody(string body, List<string> changed, VerificationRecord? verification, IReadOnlyList<string> verificationPaths, string? policyNote, TestIntegrityFlag? integrity,
-        string? noTestsRule, string? ciVerdict = null)
+        string? noTestsRule, string? ciVerdict = null, IReadOnlyList<string>? droppedJunk = null)
     {
         var text = new StringBuilder();
         if (integrity is not null)
@@ -20,6 +20,8 @@ public sealed partial class Handover
             : string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"Verification (chargehand's own run in a fresh container, {VerificationSourceText(verification.Source)}): `{string.Join(' ', verification.Argv)}` exited {verification.ExitCode} in {verification.Duration.TotalSeconds:0}s.\n"));
         text.Append(System.Globalization.CultureInfo.InvariantCulture, $"Changed files: {changed.Count}.\n");
+        if (droppedJunk is { Count: > 0 })
+            text.Append("\nchargehand dropped scratch output from the branch's commits before pushing (issue 914): ").Append(Named([.. droppedJunk])).Append(".\n");
         if (verificationPaths.Count > 0)
             text.Append("\nThe change touches files that decide what the tests mean; read them first: ").Append(string.Join(", ", verificationPaths.Take(20))).Append(".\n");
         return text.ToString();
