@@ -83,6 +83,54 @@ public class VerifierTests
         Assert.Equal("detected", plan.Source);
     }
 
+    /// <summary>Issue #911: a bare <c>sh scripts/check.sh</c> runs with no <c>node_modules</c>; a tool it calls through <c>npx</c> then
+    /// fetches an unrelated same-named package from the registry instead of running the real one.</summary>
+    [Theory]
+    [InlineData("package-lock.json", "npm ci && sh scripts/check.sh")]
+    [InlineData("pnpm-lock.yaml", "corepack enable && pnpm install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("yarn.lock", "corepack enable && yarn install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("bun.lock", "bun install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("bun.lockb", "bun install --frozen-lockfile && sh scripts/check.sh")]
+    public void A_detected_check_script_installs_node_dependencies_first_when_a_lock_file_is_present(string lockFile, string expected)
+    {
+        using var dir = new TempDir();
+        dir.Write("package.json", "{}");
+        dir.Write(lockFile, "");
+        dir.Write("scripts/check.sh", "#!/bin/sh\nnpx biome ci\n");
+        var plan = VerifyCommand.Resolve(null, dir.Path);
+        Assert.Equal(["sh", "-c", expected], plan!.Argv);
+        Assert.Equal("detected", plan.Source);
+    }
+
+    [Fact]
+    public void A_detected_check_script_runs_npm_install_with_a_package_json_and_no_lock_file()
+    {
+        using var dir = new TempDir();
+        dir.Write("package.json", "{}");
+        dir.Write("scripts/check.sh", "#!/bin/sh\necho ok\n");
+        var plan = VerifyCommand.Resolve(null, dir.Path);
+        Assert.Equal(["sh", "-c", "npm install && sh scripts/check.sh"], plan!.Argv);
+    }
+
+    [Theory]
+    [InlineData("package-lock.json", "npm ci && sh scripts/check.sh")]
+    [InlineData("pnpm-lock.yaml", "corepack enable && pnpm install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("yarn.lock", "corepack enable && yarn install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("bun.lock", "bun install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData("bun.lockb", "bun install --frozen-lockfile && sh scripts/check.sh")]
+    [InlineData(null, "npm install && sh scripts/check.sh")]
+    public void A_declared_check_script_also_installs_node_dependencies_first(string? lockFile, string expected)
+    {
+        using var dir = new TempDir();
+        dir.Write("package.json", "{}");
+        if (lockFile is not null)
+            dir.Write(lockFile, "");
+        dir.Write("scripts/check.sh", "#!/bin/sh\nnpx biome ci\n");
+        var plan = VerifyCommand.Declared(null, dir.Path);
+        Assert.Equal(["sh", "-c", expected], plan!.Argv);
+        Assert.Equal("declared", plan.Source);
+    }
+
     [Fact]
     public void Package_json_needs_a_test_script_and_pyproject_may_name_pytest()
     {
@@ -337,5 +385,15 @@ public class VerifierTests
         Assert.Contains("here", outcome.OutputTail, StringComparison.Ordinal);
         Assert.Equal("none", verifier.SandboxKind);
         Assert.False(verifier.Network);
+    }
+
+    /// <summary>Issue #911: even with the install step in place, npx should refuse rather than silently fetch an unrelated
+    /// same-named package for a tool call the script forgot to vet.</summary>
+    [Fact]
+    public async Task Verification_refuses_an_npx_auto_install()
+    {
+        using var dir = new TempDir();
+        var outcome = await Sh().RunAsync(Script("echo \"npm_config_yes=$npm_config_yes\""), dir.Path, TimeSpan.FromSeconds(20), default);
+        Assert.Contains("npm_config_yes=false", outcome.OutputTail, StringComparison.Ordinal);
     }
 }

@@ -158,13 +158,31 @@ public static partial class RepositoryDetector
         }
     }
 
-    private static string[] NodeCommand(string? lockFile) => lockFile switch
+    private static string[] NodeCommand(string? lockFile) => ["sh", "-c", $"{NodeInstallCommand(lockFile)} && {NodeTestCommand(lockFile)}"];
+
+    /// <summary>The command that installs a Node repository's dependencies from the lock file found in <paramref name="directory"/>
+    /// (<c>npm ci</c>, <c>pnpm</c>/<c>yarn install --frozen-lockfile</c>, <c>bun install --frozen-lockfile</c>), or <c>npm install</c> with
+    /// no lock file; null: no <c>package.json</c>. Shared with <c>Chargehand.Modules.Sessions.Api.VerifyCommand</c> (issue #911), so a
+    /// detected or declared <c>scripts/check.sh</c> installs before it runs instead of leaving a tool it calls through <c>npx</c> to fetch
+    /// an unrelated same-named package from the registry.</summary>
+    public static string? NodeInstall(string directory) =>
+        File.Exists(Path.Combine(directory, "package.json")) ? NodeInstallCommand(LockFiles.FirstOrDefault(f => File.Exists(Path.Combine(directory, f)))) : null;
+
+    private static string NodeInstallCommand(string? lockFile) => lockFile switch
     {
-        "package-lock.json" => ["sh", "-c", "npm ci && npm test"],
-        "pnpm-lock.yaml" => ["sh", "-c", "corepack enable && pnpm install --frozen-lockfile && pnpm test"],
-        "yarn.lock" => ["sh", "-c", "corepack enable && yarn install --frozen-lockfile && yarn test"],
-        "bun.lock" or "bun.lockb" => ["sh", "-c", "bun install --frozen-lockfile && bun run test"],
-        _ => ["sh", "-c", "npm install && npm test"],
+        "package-lock.json" => "npm ci",
+        "pnpm-lock.yaml" => "corepack enable && pnpm install --frozen-lockfile",
+        "yarn.lock" => "corepack enable && yarn install --frozen-lockfile",
+        "bun.lock" or "bun.lockb" => "bun install --frozen-lockfile",
+        _ => "npm install",
+    };
+
+    private static string NodeTestCommand(string? lockFile) => lockFile switch
+    {
+        "pnpm-lock.yaml" => "pnpm test",
+        "yarn.lock" => "yarn test",
+        "bun.lock" or "bun.lockb" => "bun run test",
+        _ => "npm test",
     };
 
     private static HashSet<string> Names(string directory) =>
