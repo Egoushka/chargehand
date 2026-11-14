@@ -244,6 +244,10 @@ public sealed partial class RunService(Orchestrator orchestrator, string presets
         return e => _emitter.Offer(e, repo);
     }
 
+    /// <summary>Deletes the oldest clones under worker_root/.checkouts (<see cref="Orchestrator.SweepCheckouts"/>, issue #509). Call once, at start, before any run (driven or not) can make or
+    /// read one. Returns the clone directories removed.</summary>
+    public IReadOnlyList<string> SweepCheckouts() => orchestrator.SweepCheckouts();
+
     /// <summary>Takes up the driven batches a restart interrupted, under their own run ids, then sweeps what no batch owns (ADR 0043). Each resumed batch holds a slot of the main gate
     /// and counts as unfinished, as before the restart. Returns the names the sweep removed.</summary>
     public async Task<IReadOnlyList<string>> ResumeAsync(CancellationToken ct)

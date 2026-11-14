@@ -3,8 +3,8 @@ using Microsoft.Extensions.Hosting;
 
 namespace Chargehand.Server;
 
-/// <summary>Runs <see cref="RunService.ResumeAsync"/> when the host starts (ADR 0043). A failure (the runner not up yet) is reported and does not stop the server; the batches it
-/// could not take up stay <c>lost</c>.
+/// <summary>Sweeps worker_root/.checkouts of its oldest clones (<see cref="RunService.SweepCheckouts"/>, issue #509), then runs <see cref="RunService.ResumeAsync"/>, when the host starts
+/// (ADR 0043). A failure (the runner not up yet) is reported and does not stop the server; the batches it could not take up stay <c>lost</c>.
 /// Then it closes the other runs the restart left open, in the run log (CHARGEHAND-260); not after a failed resume, which leaves the batches it could not take up for the next boot.</summary>
 internal sealed class BatchResumer(RunService runs, IRunLog? log = null) : IHostedService
 {
@@ -12,6 +12,9 @@ internal sealed class BatchResumer(RunService runs, IRunLog? log = null) : IHost
     {
         try
         {
+            var sweptCheckouts = runs.SweepCheckouts();
+            if (sweptCheckouts.Count > 0)
+                Console.Error.WriteLine($"chargehand serve: removed {sweptCheckouts.Count} old checkout(s) under worker_root/.checkouts");
             var swept = await runs.ResumeAsync(ct);
             if (swept.Count > 0)
                 Console.Error.WriteLine($"chargehand serve: removed {swept.Count} leftover containers, networks or volumes");
