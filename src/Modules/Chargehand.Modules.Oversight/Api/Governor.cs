@@ -26,6 +26,7 @@ public enum GovernorAction { Warn, Checkpoint, Stop }
 /// <param name="ProbePatterns">Regular expressions; a command all of whose parts match one only asks what the container has.</param>
 /// <param name="WaitPatterns">Regular expressions for commands that wait on purpose: they count toward no repeat or failure rule, and no-growth turns pause while one runs.</param>
 /// <param name="BudgetSource">Where <paramref name="BudgetUsd"/> came from (ADR 0045): the task's own, the flat budget of its size class, or a percentile of past spend; logged with each decision.</param>
+/// <param name="SpendActs">False on a subscription session: the dollar rule is only logged (observe), because the dollars there are an estimate, not a bill. The stuck signals and the context checkpoint still act.</param>
 public sealed record SessionGovernor(
     GovernorMode Mode = GovernorMode.Observe,
     decimal? BudgetUsd = null,
@@ -41,7 +42,8 @@ public sealed record SessionGovernor(
     decimal CheckpointAt = 0.85m,
     IReadOnlyList<string>? ProbePatterns = null,
     IReadOnlyList<string>? WaitPatterns = null,
-    BudgetSource? BudgetSource = null)
+    BudgetSource? BudgetSource = null,
+    bool SpendActs = true)
 {
     public static IReadOnlyList<string> DefaultProbePatterns { get; } =
     [
@@ -291,15 +293,17 @@ public sealed partial class Governor
         if (!_spendCheckpoint && usd >= budget * _settings.CheckpointAt)
         {
             _spendCheckpoint = true;
-            decisions.Add(Checkpoint("spend", "spend_checkpoint", values, turn, spend, now));
+            decisions.Add(SpendMode(Checkpoint("spend", "spend_checkpoint", values, turn, spend, now)));
         }
         if (!_spendStop && usd >= budget)
         {
             _spendStop = true;
-            decisions.Add(Decision(GovernorAction.Stop, "spend", "spend_stop", values, turn, spend, now));
+            decisions.Add(SpendMode(Decision(GovernorAction.Stop, "spend", "spend_stop", values, turn, spend, now)));
         }
         return decisions;
     }
+
+    private GovernorDecision SpendMode(GovernorDecision d) => _settings.SpendActs ? d : d with { Mode = GovernorMode.Observe };
 
     private GovernorDecision Decision(GovernorAction action, string signal, string rule, Dictionary<string, string> values, int turn, decimal? spend, DateTimeOffset now) =>
         new(now, turn, _settings.Mode, action, signal, rule, values, spend is { } s ? Math.Round(s, 4) : null, _settings.BudgetUsd, _settings.SizeClass, BudgetSource: _settings.BudgetSource);
@@ -340,8 +344,8 @@ public static class DrivenGovernorExtensions
             : new BudgetChoice((settings.Budgets ?? DrivenGovernor.DefaultBudgets).GetValueOrDefault(size ?? "M", DrivenGovernor.DefaultBudgets[size ?? "M"]), new BudgetSource("flat"));
 
     /// <summary>The settings a session of a task gets: its budget (<paramref name="chosen"/> when the caller looked at the history, else the task's own or its size class's flat one, M when it names none),
-    /// and what earlier sessions of the task spent.</summary>
-    public static SessionGovernor ToSession(this DrivenGovernor settings, string? size, decimal? taskBudget, decimal priorUsd, BudgetChoice? chosen = null)
+    /// and what earlier sessions of the task spent. <paramref name="subscription"/>: the session starts on the subscription token, so its dollar rule only logs.</summary>
+    public static SessionGovernor ToSession(this DrivenGovernor settings, string? size, decimal? taskBudget, decimal priorUsd, BudgetChoice? chosen = null, bool subscription = false)
     {
         var sizeClass = size ?? "M";
         var d = new SessionGovernor();
@@ -349,6 +353,6 @@ public static class DrivenGovernorExtensions
         return new SessionGovernor(settings.Mode, budget.Usd, priorUsd, sizeClass,
             settings.RepeatCalls ?? d.RepeatCalls, settings.RepeatFailures ?? d.RepeatFailures, settings.FailingCalls ?? d.FailingCalls, settings.ProbeCommands ?? d.ProbeCommands,
             settings.NoGrowthTurns ?? d.NoGrowthTurns, settings.RewarnTurns ?? d.RewarnTurns, settings.ContextTokens ?? d.ContextTokens, settings.CheckpointAt ?? d.CheckpointAt,
-            settings.ProbePatterns, settings.WaitPatterns, budget.Source);
+            settings.ProbePatterns, settings.WaitPatterns, budget.Source, SpendActs: !subscription);
     }
 }

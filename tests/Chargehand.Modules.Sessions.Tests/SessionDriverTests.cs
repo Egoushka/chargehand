@@ -700,6 +700,18 @@ public class SessionDriverTests
     }
 
     [Fact]
+    public async Task In_enforce_mode_a_subscription_session_over_its_budget_is_logged_and_runs_on()
+    {
+        using var w = new Workspace();
+        var script = Emit(Init, Sonnet("m1", """{"input_tokens":10,"output_tokens":200000}"""));
+        var outcome = await SessionDriver.RunAsync(Options(w, script, Task() with { Prices = Prices, Governor = new SessionGovernor(GovernorMode.Enforce, BudgetUsd: 2m, SpendActs: false) }), default);
+
+        Assert.NotEqual(SessionStatus.Stalled, outcome.Status);
+        Assert.Equal([("checkpoint", false, "observe"), ("stop", false, "observe")],
+            GovernorLines(w).Select(l => (l.GetProperty("action").GetString()!, l.GetProperty("acted").GetBoolean(), l.GetProperty("mode").GetString()!)));
+    }
+
+    [Fact]
     public async Task A_stopped_session_leaves_a_handoff_built_from_git_and_the_stream_with_secrets_redacted_and_a_secret_looking_call_dropped()
     {
         using var w = new Workspace();
