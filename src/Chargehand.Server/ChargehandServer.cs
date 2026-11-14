@@ -164,6 +164,9 @@ public static partial class ChargehandServer
         // CHARGEHAND-669: updates a pull request held only by its base branch's failing required checks, once the base turns green.
         if (driven?.Learning is not null)
             builder.Services.AddHostedService(_ => new HeldPrReconciler(driven.PrCheckEvery, driven.ReconcileHeldPrsAsync));
+        // Issue #452: classifies the human commits of merged-and-edited pull requests and proposes a repository rule once a category recurs.
+        if (driven?.Learning is not null)
+            builder.Services.AddHostedService(_ => new HumanEditRefresher(driven.PrCheckEvery, driven.RefreshHumanEditsAsync));
 
         PoolRegistration.AddPool(builder.Services, settings, log, driven, automationAccount);
         var app = builder.Build();

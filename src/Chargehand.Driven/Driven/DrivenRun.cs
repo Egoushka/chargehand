@@ -614,6 +614,15 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     public Task<int> RefreshPrOutcomesAsync(CancellationToken ct) =>
         learning is null ? Task.FromResult(0) : new PrOutcomeTracker(learning, ReadHost).RefreshAsync((profile.Driven?.Learning ?? new DrivenLearning()).PrDays, ct);
 
+    /// <summary>One pass of fetching, classifying and proposing from the human commits of pull requests chargehand opened and a person then edited before merge (issue #452). Does
+    /// nothing without learning records, a state directory to keep its JSONL files in, or a forge credential.</summary>
+    /// <returns>The human commits classified and recorded.</returns>
+    public Task<int> RefreshHumanEditsAsync(CancellationToken ct) =>
+        learning is null || stateDirectory is null
+            ? Task.FromResult(0)
+            : new HumanEditTracker(learning, new JsonlHumanEditStore(Path.Combine(stateDirectory, "human-edits.jsonl")),
+                new JsonlProposalSink(Path.Combine(stateDirectory, "proposals.jsonl")), ReadHost).RefreshAsync(ct);
+
     /// <summary>One pass that updates a pull request held only by its base branch's failing required checks, once the base turns green (CHARGEHAND-669): the integrator
     /// (<see cref="Integrator.ActAsync"/>) acts once per task, so a pull request still open once its task has ended is otherwise never revisited. Does nothing without learning
     /// records or a <c>driven.integrator</c> block.</summary>

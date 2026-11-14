@@ -131,4 +131,14 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         Calls.Add($"log {jobId}");
         return Logs.TryGetValue(jobId, out var log) ? Task.FromResult(log) : throw new IntegrationException("no log");
     }
+
+    /// <summary>The commits <see cref="CommitsAfterAsync"/> answers with, by pull request number and the sha chargehand last pushed; a request not here throws, like a real forge
+    /// whose branch no longer holds that sha.</summary>
+    public Dictionary<(int Number, string AfterSha), IReadOnlyList<PrCommit>> Commits { get; } = [];
+
+    public Task<IReadOnlyList<PrCommit>> CommitsAfterAsync(RemoteRepository repository, int number, string afterSha, CancellationToken ct)
+    {
+        Calls.Add($"commits-after {afterSha}");
+        return Task.FromResult(Commits.TryGetValue((number, afterSha), out var commits) ? commits : throw new IntegrationException("no fixture for this pull request"));
+    }
 }
