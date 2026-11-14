@@ -155,7 +155,9 @@ internal static class ConsoleSources
     private static IntakeSourceBody GitHubSource(string repository, bool on, WatchedRepository watched, IntakeState state)
     {
         var tasks = state.Tasks.Where(t => Same(t.Repository, repository)).ToList();
-        var waiting = state.Notified.Count(k => WaitsForSlot(k, repository) && !state.Handled.Contains(k["wait:".Length..]));
+        // The Waiting list holds every deferred trigger (a cap, a slot, an overlap); the notices count the ones a person was told about. Whichever is larger is the queue.
+        var waiting = Math.Max(state.Waiting.Count(w => Same(w.Repository, repository)),
+            state.Notified.Count(k => WaitsForSlot(k, repository) && !state.Handled.Contains(k["wait:".Length..])));
         return new(repository, on, watched.Discovered ? "discovered" : "listed", watched.Path, tasks.Count(t => t.Phase == IntakePhase.Running),
             state.Pending.Count(p => Same(p.Repository, repository)) + waiting,
             [.. tasks.OrderByDescending(t => t.Started).Take(MaxRecent).Select(t => new IntakeSourceRunBody(t.BatchRunId, t.TaskId,

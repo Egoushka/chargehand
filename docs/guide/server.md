@@ -61,7 +61,8 @@ The caller sends the key as `Authorization: Bearer chk1...` on every route, `/v1
 | field | meaning |
 |---|---|
 | `name` | lowercase letters, digits, hyphens; `owner` is reserved. Recorded as `actor` |
-| `max_usd_per_day`, `max_usd_per_month` | dollars the account's runs may cost in the UTC day or calendar month, by their results' `usage`. A subscription run has no price and adds none: pair it with a token cap |
+| `max_usd_per_day`, `max_usd_per_month` | dollars the account's runs may cost in the UTC day or calendar month, by their results' `usage`. A subscription run has no price, adds none and reserves none: cap it with the percent caps below or a token cap |
+| `max_pct_per_day_7d`, `max_pct_per_day_5h` | points of the subscription's seven-day or five-hour window the account's runs may use in a UTC day ([ADR 0100](../adr/0100-two-daily-caps-dollars-for-api-keys-percent-for-a-subscription.md)), read from the usage windows its runs report. Each is optional; unset is no cap on that window. A runtime that reports no windows refuses with `subscription_not_measurable`; a window with no reading today admits and shows `no_reading` in `GET /v1/accounts/me` |
 | `max_tokens_per_day`, `max_tokens_per_month` | input plus output tokens in the same windows |
 | `max_concurrent_runs` | unfinished runs (queued or running) at once |
 | `driven` | may start a batch; default `false`, because a batch pushes branches and opens pull requests with the server's credential |

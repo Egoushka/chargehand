@@ -319,7 +319,8 @@ public static partial class ChargehandServer
             app.MapGet(path, async (HttpContext ctx, RunService runs) =>
             {
                 var who = PrincipalHttp.Of(ctx)!;
-                return Json(await AccountStanding.ReadAsync(who, runs.Now, runs.Unfinished(who.Name), runs.Halted, runs.Presets(), runs.ReservedUsd(who.Name), log, ctx.RequestAborted),
+                return Json(await AccountStanding.ReadAsync(who, runs.Now, runs.Unfinished(who.Name), runs.Halted, runs.Presets(), runs.ReservedUsd(who.Name), log, ctx.RequestAborted,
+                    who.Account is { } own ? await runs.SubscriptionStandingAsync(own, own.Driven, ctx.RequestAborted) : null),
                     StatusCodes.Status200OK);
             });
 

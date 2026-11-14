@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Chargehand.Kernel;
 using Microsoft.Extensions.Options;
@@ -7,6 +8,8 @@ namespace Chargehand.Modules.Accounts.Api;
 
 /// <summary>A caller of the server besides the owner (ADR 0050). It sees and cancels only its own runs. Every cap left out is no cap; a window is a UTC calendar day or month.</summary>
 /// <param name="Name">Lowercase letters, digits and hyphens; <c>owner</c> is the implicit account of <c>api_key_secret</c> and cannot be declared.</param>
+/// <param name="MaxPctPerDay7d">Points of the subscription's seven-day window the account's runs may use in a UTC day (ADR 0100); null: no cap on that window.</param>
+/// <param name="MaxPctPerDay5h">The same for the five-hour window, summed over the day's windows; null: no cap.</param>
 /// <param name="MaxUsdPerDay">Dollars the account's runs may cost in a UTC day, by the results' usage (priced runs only; a subscription run counts tokens).</param>
 /// <param name="MaxConcurrentRuns">Runs of this account that are unfinished at once (queued or running).</param>
 /// <param name="Driven">Whether the account may start a batch (a request with a <c>driven</c> block): a batch pushes branches and opens pull requests with the server's credential.</param>
@@ -20,7 +23,7 @@ namespace Chargehand.Modules.Accounts.Api;
 /// repository outside the roots.</param>
 public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, decimal? MaxUsdPerMonth = null, long? MaxTokensPerDay = null, long? MaxTokensPerMonth = null,
     int? MaxConcurrentRuns = null, bool Driven = false, IReadOnlyList<string>? Repositories = null, AccountModel? Model = null, bool AllowServerCredential = false, bool PauseOnForecast = false,
-    bool PublicClone = false)
+    bool PublicClone = false, [property: JsonPropertyName("max_pct_per_day_7d")] decimal? MaxPctPerDay7d = null, [property: JsonPropertyName("max_pct_per_day_5h")] decimal? MaxPctPerDay5h = null)
     : IValidatableObject
 {
     public const string Owner = "owner";
@@ -36,6 +39,10 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
 
     IEnumerable<ValidationResult> IValidatableObject.Validate(ValidationContext validationContext) => SettingsValidation.Results(Problems());
 
+    private IEnumerable<string> PctProblems() =>
+        (MaxConcurrentRuns is < 1 ? ["max_concurrent_runs must be at least 1"] : (IEnumerable<string>)[])
+        .Concat(new[] { ("max_pct_per_day_7d", MaxPctPerDay7d), ("max_pct_per_day_5h", MaxPctPerDay5h) }.Where(p => p.Item2 is <= 0 or > 100).Select(p => $"{p.Item1} must be above 0 and at most 100"));
+
     public IEnumerable<string> Problems()
     {
         if (!ValidName(Name)) yield return "name must be lowercase letters, digits and hyphens, starting with a letter, at most 32 characters";
@@ -44,7 +51,8 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
         if (MaxUsdPerMonth is <= 0) yield return "max_usd_per_month must be above 0";
         if (MaxTokensPerDay is <= 0) yield return "max_tokens_per_day must be above 0";
         if (MaxTokensPerMonth is <= 0) yield return "max_tokens_per_month must be above 0";
-        if (MaxConcurrentRuns is < 1) yield return "max_concurrent_runs must be at least 1";
+        foreach (var problem in PctProblems())
+            yield return problem;
         if (PauseOnForecast && MaxUsdPerMonth is null) yield return "pause_on_forecast needs max_usd_per_month: the forecast has no cap to pass";
         if (Repositories?.Any(r => !Path.IsPathRooted(r)) == true) yield return "repositories must be absolute paths";
         foreach (var problem in Model?.Problems() ?? [])

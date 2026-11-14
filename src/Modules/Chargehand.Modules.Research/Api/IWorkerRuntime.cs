@@ -12,6 +12,9 @@ public interface IWorkerRuntime
     /// <summary>Which credential pays for this runtime's calls, <c>api_key</c> or <c>subscription</c> (ADR 0082): a dollar cap counts the first only.</summary>
     string Credential => "api_key";
 
+    /// <summary>The subscription whose usage windows this runtime reports (ADR 0100), <c>claude</c> for Claude Code; null when it reports none, so a percent cap on it cannot be measured.</summary>
+    string? UsageProvider => null;
+
     /// <summary>Whether this runtime reports the tokens it spends, so a dollar cap can hold. False (an ACP agent that reports none, ADR 0086 decision 10):
     /// a run is refused <c>runtime_uncapped</c> unless the profile allows it, and its usage is marked not recorded.</summary>
     bool ReportsUsage => true;

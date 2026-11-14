@@ -23,6 +23,8 @@ internal sealed class ScriptedRuntime(string reply, params string[] specs) : IWo
     /// <summary>The credential kind the runtime reports: <c>api_key</c> is priced, <c>subscription</c> is not (ADR 0082).</summary>
     public string Credential { get; set; } = "api_key";
 
+    public string? UsageProvider { get; set; }
+
     /// <summary>The subscription windows every assistant message carries, as a runtime that read the provider's report would stamp them (ADR 0098); null: none read.</summary>
     public SubscriptionUsage? Subscription { get; set; }
 
