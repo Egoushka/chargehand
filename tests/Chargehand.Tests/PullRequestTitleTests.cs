@@ -83,6 +83,26 @@ public class PullRequestTitleTests
         Assert.Equal(expected, PullRequestTitle.Of(title, "goal"));
 
     [Fact]
+    public void A_subject_the_added_type_or_tag_would_push_past_100_characters_is_cut_at_a_word_so_the_title_check_still_passes()
+    {
+        var long93 = new string('a', 93);
+        Assert.Equal(93, long93.Length);
+        var title = PullRequestTitle.Of(long93, "goal");
+        Assert.Equal($"chore: {long93}", title);
+        Assert.True(title.Length - "chore: ".Length <= 100);
+
+        var over = new string('a', 36) + " " + new string('b', 64);
+        Assert.Equal(101, over.Length);
+        Assert.Equal($"chore: {new string('a', 36)}", PullRequestTitle.Of(over, "goal"));
+
+        var partial = PullRequestTitle.Of(over, "goal", "[partial] ");
+        Assert.Equal("chore: [partial] " + new string('a', 36), partial);
+
+        var alreadyTyped = "feat: " + over;
+        Assert.Equal($"feat: {new string('a', 36)}", PullRequestTitle.Of(alreadyTyped, "goal"));
+    }
+
+    [Fact]
     public void A_title_is_one_line_of_1_to_200_characters()
     {
         RequestDriven Driven(string title) => new([new DrivenTask("t1", Goal: "x", Title: title)]);
