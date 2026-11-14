@@ -21,6 +21,7 @@ From a checkout, every command runs as `dotnet run --project src/Chargehand.Cli 
 | `routes [run-log.jsonl ...]` | routing report per preset, node kind and model, from the given logs or the default one | |
 | `score <run-id> <0-1> [name]` | records a hand score for a run; the name defaults to `quality` | |
 | `eval seed <cell> <run-id>...` | proposes eval items (JSONL on stdout) from runs in the log | |
+| `eval seed-human-fixes <edits.jsonl>` | proposes eval items (JSONL on stdout) for `review/worker`, `code/writer` and `driven/session` from the classified human-edits store, one per commit whose category names a lesson | |
 | `eval push <cell>` | pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset | |
 | `eval gate <base> <change> [options]` | Prompt CI's paired runs and verdict, see [Prompt CI](prompt-ci.md#the-eval-commands) | 1 when blocked |
 | `eval levers [options]` | tokens and pass rate per cell, preset and token-saving lever, see [Token levers](token-levers.md) | 0 |
