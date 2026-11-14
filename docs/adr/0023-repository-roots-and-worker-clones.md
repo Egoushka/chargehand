@@ -35,7 +35,7 @@ Option 3.
 - The orchestrator resolves the requested commit in the source (a short hash is enough) and runs the worker in
   `<worker_root>/.checkouts/<name>-<hash of the source path>/<commit>`: `git clone --local --no-checkout` of the
   source, then a detached checkout of the commit. The clone is built beside that path and moved into it, reused by
-  later runs of the same source and commit, and never deleted (ADR 0015).
+  later runs of the same source and commit (ADR 0015), and swept by age and count at server start (issue #509).
 - Only tracked files at the commit reach the worker; the source's uncommitted and ignored files do not. The
   preset's read denies still refuse a clone that tracks such a file (ADR 0006).
 - `worker_root` stays outside the home (ADR 0003); nodes without a checkout still run in its empty directory.
@@ -46,8 +46,9 @@ Option 3.
 - The worker answers from the commit, never from the caller's working tree; an uncommitted change is invisible to
   it. Callers that want one answered commit first.
 - `git clone --local` hardlinks the object files when source and `worker_root` share a file system, so a clone costs
-  little space; across file systems it copies them. Clones accumulate, one per source and commit; clear
-  `.checkouts` by hand. A failed clone leaves its temporary directory behind.
+  little space; across file systems it copies them. Clones accumulate, one per source and commit; a sweep at server
+  start deletes the oldest past 500 or idle past 180 days (issue #509), including a failed clone's leftover
+  temporary directory once it idles that long.
 - The source repository is only read: no worktree registration or other write lands in it.
 - Writing nodes (phase 6) need their changes back in the source: a clone's branch can be fetched from, or ADR 0015's
   worktrees used there. That choice is left to phase 6.

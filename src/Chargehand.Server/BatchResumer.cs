@@ -15,6 +15,14 @@ internal sealed class BatchResumer(RunService runs, IRunLog? log = null) : IHost
             var sweptCheckouts = runs.SweepCheckouts();
             if (sweptCheckouts.Count > 0)
                 Console.Error.WriteLine($"chargehand serve: removed {sweptCheckouts.Count} old checkout(s) under worker_root/.checkouts");
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // A checkout sweep failure (a permission error reading .checkouts) must not keep interrupted batches from resuming below.
+            Console.Error.WriteLine($"chargehand serve: could not sweep worker_root/.checkouts: {e.Message}");
+        }
+        try
+        {
             var swept = await runs.ResumeAsync(ct);
             if (swept.Count > 0)
                 Console.Error.WriteLine($"chargehand serve: removed {swept.Count} leftover containers, networks or volumes");

@@ -708,7 +708,7 @@ public sealed class Orchestrator(
         if (!Directory.Exists(Path.Combine(dir, ".git")) || await Git(dir, ct, "rev-parse", "HEAD") != commit)
         {
             // Built beside the final path and moved into it, so an interrupted clone is never reused.
-            // ponytail: a failed clone leaves its temporary directory behind; sweep .checkouts by hand if that piles up.
+            // ponytail: a failed clone leaves its temporary directory behind; CheckoutSweep (issue #509) clears it with the rest once it idles past MaxAge.
             var temp = $"{dir}.tmp-{Guid.NewGuid():N}";
             var parent = Path.GetDirectoryName(dir)!;
             Directory.CreateDirectory(parent);
