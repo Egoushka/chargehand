@@ -170,4 +170,34 @@ public class ReviewedChangeTests
         Assert.Contains("1 of 2 files of the diff input are in it", prompt, StringComparison.Ordinal);
         Assert.Contains("src/Other.cs", prompt, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task The_task_text_carries_a_per_file_hunk_index_before_the_raw_diff()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var cut = AddsFile + "diff --git a/src/Other.cs b/src/Other.cs\nnew file mode 100644\n--- /dev/null\n+++ b/src/Other.cs\n@@ -0,0 +1,40 @@\n+class Other { }\n";
+
+        var (_, runtime) = await RunAsync(root, repo, cut, "src/New.cs:1");
+
+        var prompt = Assert.Single(runtime.Prompts);
+        Assert.Contains("Diff index", prompt, StringComparison.Ordinal);
+        Assert.Contains("src/New.cs: L1-2", prompt, StringComparison.Ordinal);
+        Assert.Contains("src/Other.cs: L1-40", prompt, StringComparison.Ordinal);
+        Assert.True(prompt.IndexOf("Diff index", StringComparison.Ordinal) < prompt.IndexOf("Inputs (cite", StringComparison.Ordinal),
+            "the index must come before the raw diff input, so the worker reads it first");
+    }
+
+    [Fact]
+    public async Task A_hunk_with_no_new_file_range_is_indexed_as_a_rename_or_mode_change()
+    {
+        using var root = new TempDir();
+        var repo = Runs.GitRepo(root.Path);
+        var diff = "diff --git a/src/Old.cs b/src/New2.cs\nsimilarity index 100%\nrename from src/Old.cs\nrename to src/New2.cs\n";
+
+        var (_, runtime) = await RunAsync(root, repo, diff, "README.md:1");
+
+        var prompt = Assert.Single(runtime.Prompts);
+        Assert.Contains("src/New2.cs: no hunk", prompt, StringComparison.Ordinal);
+    }
 }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -9,13 +10,25 @@ namespace Chargehand.Workspace;
 /// <param name="Commit">The commit at <paramref name="Directory"/>: a commit of the clone, not of the caller's repository, when something was applied.</param>
 /// <param name="Applied">Files of the diff now in the tree.</param>
 /// <param name="Skipped">Files of the diff that were neither applied nor already there: a cut or conflicting patch, a symlink.</param>
-public sealed record ReviewedChange(string Directory, string Commit, IReadOnlyList<string> Applied, IReadOnlyList<string> Skipped)
+/// <param name="Hunks">One line per file of the diff, in diff order: its hunks as new-file line ranges, or "no hunk" for a rename, mode change or stub header
+/// (issue #449). Read before the raw diff input, so a review spends fewer turns re-discovering what changed and where.</param>
+public sealed record ReviewedChange(string Directory, string Commit, IReadOnlyList<string> Applied, IReadOnlyList<string> Skipped, IReadOnlyList<string> Hunks)
 {
-    /// <summary>What the worker is told when part of the diff is in its tree; null when none is.</summary>
-    public string? Note => Applied.Count == 0
-        ? null
-        : $"The checkout holds the change of the diff input: {Applied.Count} of {Applied.Count + Skipped.Count} files of the diff input are in it, so read and cite their lines in the checkout."
-          + (Skipped.Count == 0 ? "" : $" Not in it, review these from the diff input: {string.Join(", ", Skipped)}.");
+    /// <summary>What the worker is told before it reads the raw diff input: the per-file hunk index always, and, when part of the diff is in its tree, which files to read from the
+    /// checkout instead of the diff text. Null when the diff held no files at all.</summary>
+    public string? Note
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (Hunks.Count > 0)
+                parts.Add($"Diff index, read this before the diff input below (one line per changed file, its hunks as new-file line ranges):\n{string.Join("\n", Hunks.Select(h => $"- {h}"))}");
+            if (Applied.Count > 0)
+                parts.Add($"The checkout holds the change of the diff input: {Applied.Count} of {Applied.Count + Skipped.Count} files of the diff input are in it, so read and cite their lines in the checkout."
+                    + (Skipped.Count == 0 ? "" : $" Not in it, review these from the diff input: {string.Join(", ", Skipped)}."));
+            return parts.Count == 0 ? null : string.Join("\n\n", parts);
+        }
+    }
 
     /// <summary>
     /// A review reads the change it reviews. The caller pins the commit it changed from and sends the change as a diff, since the changed commit may exist only
@@ -28,7 +41,7 @@ public sealed record ReviewedChange(string Directory, string Commit, IReadOnlyLi
     {
         var files = Split(diff);
         if (files.Count == 0)
-            return new ReviewedChange(checkout, commit, [], []);
+            return new ReviewedChange(checkout, commit, [], [], []);
         var dir = $"{checkout}.change-{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(diff)))[..12]}";
         if (System.IO.Directory.Exists(Path.Combine(dir, ".git")) && await Git(dir, null, ct, "rev-parse", "--verify", "HEAD") is { } kept)
             return Result(dir, kept, files, SkippedIn(await Git(dir, null, ct, "log", "-1", "--format=%b") ?? ""));
@@ -39,7 +52,7 @@ public sealed record ReviewedChange(string Directory, string Commit, IReadOnlyLi
             if ((await Git(parent, null, ct, "clone", "-q", "--local", "--no-checkout", "--", checkout, temp) is null
                  && await Git(parent, null, ct, "clone", "-q", "--no-hardlinks", "--no-checkout", "--", checkout, temp) is null)
                 || await Git(temp, null, ct, "checkout", "-q", "--detach", commit) is null)
-                return new ReviewedChange(checkout, commit, [], files.Select(f => f.Path).ToList());
+                return Result(checkout, commit, files, files.Select(f => f.Path).ToList());
             var changed = 0;
             var skipped = new List<string>();
             foreach (var file in files)
@@ -82,10 +95,28 @@ public sealed record ReviewedChange(string Directory, string Commit, IReadOnlyLi
     }
 
     private static ReviewedChange Result(string directory, string commit, List<FilePatch> files, IReadOnlyList<string> skipped) =>
-        new(directory, commit, files.Select(f => f.Path).Where(p => !skipped.Contains(p)).ToList(), skipped);
+        new(directory, commit, files.Select(f => f.Path).Where(p => !skipped.Contains(p)).ToList(), skipped, [.. files.Select(HunkLine)]);
 
     private static List<string> SkippedIn(string message) =>
         [.. message.Split('\n').Where(l => l.StartsWith("skipped: ", StringComparison.Ordinal)).Select(l => l["skipped: ".Length..])];
+
+    /// <summary>One file of the hunk index: its path and its hunks as new-file line ranges with their header context, in diff order; "no hunk" for a
+    /// rename, mode change or a stub header with nothing to apply.</summary>
+    private static string HunkLine(FilePatch file)
+    {
+        var hunks = Regex.Matches(file.Patch, @"(?m)^@@ -\d+(?:,\d+)? \+(?<start>\d+)(?:,(?<len>\d+))? @@ ?(?<context>.*)$");
+        if (hunks.Count == 0)
+            return $"{file.Path}: no hunk (rename, mode change or a header too large to apply)";
+        var ranges = hunks.Select(m =>
+        {
+            var start = int.Parse(m.Groups["start"].Value, CultureInfo.InvariantCulture);
+            var length = m.Groups["len"].Success ? int.Parse(m.Groups["len"].Value, CultureInfo.InvariantCulture) : 1;
+            var range = length <= 1 ? $"L{start}" : $"L{start}-{start + length - 1}";
+            var context = m.Groups["context"].Value.Trim();
+            return context.Length == 0 ? range : $"{range} ({context})";
+        });
+        return $"{file.Path}: {string.Join(", ", ranges)}";
+    }
 
     private sealed record FilePatch(string Path, string Patch, bool Symlink);
 
