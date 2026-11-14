@@ -446,7 +446,7 @@ public sealed class Orchestrator(
         // volatile notes, never into the fixed instructions that siblings fork from (ADR 0010).
         var packNote = kind.Checkout && commit.Length > 0 ? RepositoryPackNote(_packs.GetOrBuild(repository, directory, commit)) : "";
         var stack = local ? memory?.LocalOnly() : publicFree?.Owns(worker) == true ? null : memory;
-        var recall = await Recall(stack, request.Text, run, extensions, ct);
+        var recall = await Recall(stack, request.Text, repository.Length > 0 ? EnvironmentFacts.Query(repository) : null, run, extensions, ct);
         var facts = recall.Prompt;
         chain = chain with { Blocks = [.. chain.Blocks, .. recall.Blocks] };
         // Granted once per run and shared by every node; the tools hash covers the grant, and is today's when there is none.
@@ -578,6 +578,8 @@ public sealed class Orchestrator(
     {
         if (memory is null || result.Status != ResultStatus.Completed)
             return;
+        if (repository.Length > 0 && EnvironmentFacts.From(result) is { Count: > 0 } environment)
+            await memory.RetainAsync(EnvironmentFacts.Item(environment, repository, runId, DateTimeOffset.UtcNow), ct);
         var selection = commit.Length == 0 ? new RetainSelection([], []) : RetainableClaims.From(result);
         if (selection.Skipped.Count > 0)
             run?.SetTag("chargehand.retain.claims_left_out", selection.Skipped.Count);
@@ -594,11 +596,11 @@ public sealed class Orchestrator(
     }
 
     /// <summary>Memory is optional context: a source that fails leaves the run without its facts rather than failing it.</summary>
-    private static async Task<RecallOutcome> Recall(MemoryStack? memory, string query, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
+    private static async Task<RecallOutcome> Recall(MemoryStack? memory, string query, string? environmentQuery, Activity? run, ExtensionsCollector extensions, CancellationToken ct)
     {
         if (memory is null)
             return new RecallOutcome([], "", []);
-        var outcome = await memory.RecallAsync(query, ct);
+        var outcome = await memory.RecallAsync(query, ct, environmentQuery);
         extensions.Recalled(outcome.Sources.Select(s => new MemoryReport(s.Source, s.Items.Count, s.SkippedReason, 0, null)));
         foreach (var s in outcome.Sources)
             if (s.SkippedReason is { } reason)
