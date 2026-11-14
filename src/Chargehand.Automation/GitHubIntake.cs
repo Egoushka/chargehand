@@ -189,18 +189,20 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 await LabelAsync(name, ct);
                 var candidates = new List<Candidate>();
                 await GatherLabelCandidatesAsync(name, repository, starter, candidates, ct);
-                await GatherCommentCandidatesAsync(name, repository, starter, candidates, ct);
+                var finishComments = await GatherCommentCandidatesAsync(name, repository, starter, candidates, ct);
                 if (MaxReviewRounds > 0)
                 {
                     await ReviewCommentsAsync(name, ct);
                     await GatherRoundCandidatesAsync(name, starter, candidates, ct);
                 }
                 await AttemptAsync(candidates, ct);
+                // Only now has every comment candidate's own Finish run (issue #916): a held one has registered itself in _stillWaiting below, and the cursor can be written back safely.
+                finishComments();
                 state.Save(_time.GetUtcNow());
                 await LostAsync(name, repository, starter, ct);
                 if (settings.ReviewPulls || _reviews.HasRequests(name))
                     await _reviews.StartAsync(name, repository, _checkouts, starter, Sources, settings.ReviewPulls, ct);
-                Withdraw(name);
+                await WithdrawAsync(name, ct);
             }
             catch (IntakeException e)
             {
@@ -295,8 +297,11 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     }
 
     /// <summary>Gathers a candidate for every comment this poll that answers a task or mentions the bot on a new issue (issue #576); one that settles immediately (not allowed, a reply on a
-    /// pull request, no trigger at all) is bookkept here, not as a candidate.</summary>
-    private async Task GatherCommentCandidatesAsync(string name, AutomationRepository repository, IBatchStarter starter, List<Candidate> candidates, CancellationToken ct)
+    /// pull request, no trigger at all) is bookkept here, not as a candidate. Returns the repository's cursor write, to run once every candidate gathered here has actually been attempted
+    /// (issue #916): a comment deferred for a free slot registers itself with <see cref="Hold"/> only when <see cref="Candidate.Finish"/> runs, in <see cref="AttemptAsync"/>, which is after
+    /// this method returns; writing the cursor here, before that, would advance it past a comment still waiting as soon as any later comment in the same batch settled (its own
+    /// "waiting for a free slot" notice, say), and the next poll would never read it again.</summary>
+    private async Task<Action> GatherCommentCandidatesAsync(string name, AutomationRepository repository, IBatchStarter starter, List<Candidate> candidates, CancellationToken ct)
     {
         var now = _time.GetUtcNow();
         // The first poll of a repository starts at that moment: comments from before it are not requests.
@@ -319,9 +324,12 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             else
                 Settle(comment);
         }
-        // A comment that has to wait for a slot is read again, from its own time.
-        state.CommentCursor[name] = held ?? next;
-        state.Save(now);
+        return () =>
+        {
+            // A comment that has to wait for a slot is read again, from its own time.
+            state.CommentCursor[name] = held ?? next;
+            state.Save(_time.GetUtcNow());
+        };
     }
 
     /// <summary>Null when the comment is not a trigger, or settles immediately (its bookkeeping is already done); otherwise a candidate ranked for the queue, an answer or a mention of the bot
@@ -555,14 +563,18 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         state.Save(_time.GetUtcNow());
     }
 
-    /// <summary>After a repository's pass: a waiting trigger that settled leaves the queue, and one that was not read again (its label taken off, its comment deleted, its issue closed) is withdrawn.</summary>
-    private void Withdraw(string name)
+    /// <summary>After a repository's pass: a waiting trigger that settled leaves the queue, and one that was not read again (its label taken off, its comment deleted, its issue closed) is
+    /// withdrawn, which says so on the issue, since otherwise nothing there shows the task gave up waiting.</summary>
+    private async Task WithdrawAsync(string name, CancellationToken ct)
     {
         var gone = state.Waiting.Where(w => w.Repository == name && (state.Handled.Contains(w.Key) || !_stillWaiting.Contains(w.Key))).ToList();
         if (gone.Count == 0)
             return;
         foreach (var w in gone.Where(w => !state.Handled.Contains(w.Key)))
+        {
             Log(w.Key, "ignored", "withdrawn");
+            await TryCommentAsync(name, w.Issue, $"chargehand is no longer waiting ({w.Reason}{(w.Detail is null ? "" : $": {w.Detail}")}): it was not read again. Comment {settings.Mention} to start over.", ct);
+        }
         state.Waiting.RemoveAll(gone.Contains);
         state.Save(_time.GetUtcNow());
     }

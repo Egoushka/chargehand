@@ -488,6 +488,40 @@ public class GitHubIntakeTests
         Assert.Empty(rig.State.Waiting);
     }
 
+    /// <summary>Issue #916: the comment cursor must only move past a held comment once that comment's own attempt (not some other comment settled in the same or a later pass)
+    /// has run; otherwise the next pass never reads the held comment again and it is withdrawn as if it had vanished, even while the issue and comment are untouched.</summary>
+    [Fact]
+    public async Task A_reply_waiting_for_a_slot_is_not_lost_when_a_later_comment_settles_first()
+    {
+        using var rig = new IntakeRig(Settings(concurrent: 1));
+        rig.Labeled(7, "alice", 41);
+        await rig.Poll();
+        rig.Log.Asked("task-run", "Which policy?");
+        rig.Log.End("run-1", new TaskOutcome("issue-7", TaskState.NeedsInput, "task-run", "asked"));
+        rig.Labeled(8, "alice", 42);
+        await rig.Poll();
+
+        rig.Comment(7, "alice", "exponential");
+        await rig.Poll();
+        Assert.Contains(rig.State.Waiting, w => w.Issue == 7);
+
+        // Another comment in the repository, settled further in time than the reply chargehand is still holding: it must not push the cursor past the reply.
+        rig.GitHub.Add(8, "chargehand[bot]", $"{GitHubIntake.Marker}\nsome update", rig.Now + TimeSpan.FromMinutes(1));
+        await rig.Poll();
+        Assert.Contains(rig.State.Waiting, w => w.Issue == 7);
+        Assert.DoesNotContain(rig.State.Triggers, t => t is { Outcome: "ignored", Reason: "withdrawn" });
+
+        // A second busy pass, with nothing new to settle: the reply must still be read again, not withdrawn.
+        await rig.Poll();
+        Assert.Contains(rig.State.Waiting, w => w.Issue == 7);
+        Assert.DoesNotContain(rig.State.Triggers, t => t is { Outcome: "ignored", Reason: "withdrawn" });
+
+        rig.Log.End("run-2", IntakeRig.Pr("issue-8"));
+        await rig.Poll();
+        Assert.Equal(3, rig.Starter.Started.Count);
+        Assert.Empty(rig.State.Waiting);
+    }
+
     [Fact]
     public async Task A_second_trigger_on_an_issue_with_a_running_task_starts_nothing_and_says_so_once()
     {

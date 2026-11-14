@@ -46,7 +46,8 @@ chargehand checks the branch itself and pushes only if every check passes:
 |---|---|
 | the session made a bundle | `session_failed` |
 | the branch descends from the base commit and changes something | `session_failed` |
-| no commit of the branch touches scratch output (a `.tmp` directory, where a `TMPDIR` inside the workspace puts its files; a `*.tmp` file; a `.scratch*` file or directory), more than 300 paths in all, or a file over 5 MiB (issue 430) | `session_failed`, naming the paths |
+| no commit of the branch touches more than 300 paths in all, or a file over 5 MiB (issue 430) | `session_failed`, naming the paths |
+| scratch output (a `.tmp` directory, where a `TMPDIR` inside the workspace puts its files; a `*.tmp` file; a `.scratch*` file or directory) | not refused: dropped from every commit that carries it before the push, and named in the pull request body (issue 914); a rewrite that fails falls back to the `session_failed` refusal above |
 | the diff carries no secret-shaped text, none of the credentials the session had, no secret-like file names | `session_failed`, naming the kind and the path, never the value |
 | the diff changes no CI configuration (`.github/workflows`, `.gitlab-ci.yml`, ...) unless allowed, because pushing such a branch can run it with the repository's secrets | `session_failed` |
 | the repository's tests pass in a **fresh** container on the bundle's branch (chargehand's own run; the session's claim is kept apart) | `verification_failed`; a repository with no test command is not pushed unless allowed |
