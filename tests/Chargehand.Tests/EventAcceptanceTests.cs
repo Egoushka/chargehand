@@ -56,7 +56,7 @@ public sealed class EventAcceptanceTests
         Assert.Equal(HttpStatusCode.BadRequest, bad.Status);
 
         var work = await SendAsync(http, HttpMethod.Post, "/v1/events",
-            "{\"specversion\":\"1.0\",\"id\":\"w1\",\"source\":\"claude\",\"type\":\"claude.tool.called\",\"time\":\"2026-11-08T12:04:00Z\",\"data\":{\"cwd\":\"/home/u/work/bison\"}}");
+            "{\"specversion\":\"1.0\",\"id\":\"w1\",\"source\":\"claude\",\"type\":\"claude.tool.called\",\"time\":\"2026-11-08T12:04:00Z\",\"data\":{\"cwd\":\"/home/u/work/acme\"}}");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, work.Status);
     }
 }
