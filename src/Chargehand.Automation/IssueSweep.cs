@@ -97,7 +97,7 @@ public sealed partial class IssueSweep(
         var repository = context.Repository;
         var queued = await QueuedOrRunningAsync(context, issue.Number, ct);
         var skip = SweepFilter.Skip(issue, false, queued, trustedAuthors);
-        if (skip == SweepSkip.None && await heads.ClaimAsync(context.Checkout.Path, issue.Number, ct) is not null)
+        if (skip == SweepSkip.None && await heads.ClaimAsync(context.Checkout.Path, issue.Number, ct) is { } claim && claim.ExpiresAt > clock.GetUtcNow())
             skip = SweepSkip.Claimed;
         if (skip != SweepSkip.None)
         {
@@ -125,12 +125,26 @@ public sealed partial class IssueSweep(
             return;
         }
 
+        // An answer that did not fit the schema is a blip, not a verdict: nothing is written or cached, and the next sweep sorts again.
+        if (result == ModelSweepSorter.Unsorted)
+        {
+            tally.Deferred++;
+            return;
+        }
+
+        // The pool item for this exact text ended and the issue is still open with no pull request: queuing it again would loop. Editing the issue changes the hash.
+        if (result.Verdict == SweepVerdict.Ready && await state.QueuedHashAsync(key) == hash)
+            result = new SortResult(SweepVerdict.NeedsOwner, result.Size, AlreadyTried);
+
         await PublishAsync(repository, issue, key, cacheHash, result, unreadable, ct);
         tally.Count(repository, issue, result);
         if (result.Verdict == SweepVerdict.Epic && !issue.Body.Contains(SplitMarker, StringComparison.Ordinal))
             await splitter.SplitAsync(repository, issue, ct);
-        else if (result.Verdict == SweepVerdict.Ready && await EnqueueAsync(repository, issue, result, ct))
+        else if (result.Verdict == SweepVerdict.Ready && !await QueuedOrRunningAsync(context, issue.Number, ct) && await EnqueueAsync(repository, issue, result, ct))
+        {
+            await state.MarkQueuedAsync(key, hash);
             tally.Enqueued++;
+        }
     }
 
     private async Task PublishAsync(string repository, IntakeIssue issue, string key, string cacheHash, SortResult result, IReadOnlyList<string> unreadable, CancellationToken ct)
@@ -151,6 +165,9 @@ public sealed partial class IssueSweep(
         var queued = await pool.EnqueueAsync(new EnqueueRequest(repository, $"issue-{issue.Number}", title, body, priority, null, "sweep", issue.Number, result.Size), ct);
         return queued.Item is not null;
     }
+
+    /// <summary>The reason given when the issue's text already went through the pool once and is still open.</summary>
+    internal const string AlreadyTried = "chargehand already worked on this issue as written and it is still open; edit it to have chargehand try again";
 
     private static bool Has(IntakeIssue issue, string label) => issue.Labels.Contains(label, StringComparer.OrdinalIgnoreCase);
 

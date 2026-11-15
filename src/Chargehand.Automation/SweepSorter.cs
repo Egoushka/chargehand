@@ -38,7 +38,7 @@ public sealed partial class ModelSweepSorter(IWorkerRuntime runtime, ModelRef? m
 
     private const string Fence = "untrusted-github-text";
 
-    private static readonly SortResult Unsorted = new(SweepVerdict.NeedsOwner, "M", "unsorted");
+    internal static readonly SortResult Unsorted = new(SweepVerdict.NeedsOwner, "M", "unsorted");
 
     public async Task<SortResult> SortAsync(IntakeIssue issue, string repository, string? claudeMd, CancellationToken ct) =>
         Parse(await runtime.GenerateAsync(model, Prompt(issue, repository, claudeMd), ct));

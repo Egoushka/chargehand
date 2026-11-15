@@ -245,6 +245,56 @@ public sealed class IssueSweepTests : IDisposable
         Assert.Equal(3, Assert.Single(report.Repositories).Deferred);
     }
 
+    [Fact]
+    public async Task An_issue_whose_item_ended_without_a_pull_request_is_not_queued_again_until_it_changes()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1)];
+        var sweep = Sweep(200, App);
+        await sweep.RunAsync("manual", CancellationToken.None);
+        var first = Assert.Single(await _pool.ItemsAsync(null, CancellationToken.None));
+        await _pool.DoneAsync([first.Key], "completed", CancellationToken.None);
+
+        await sweep.RunAsync("manual", CancellationToken.None);
+        await sweep.RunAsync("manual", CancellationToken.None);
+
+        Assert.Single(await _pool.ItemsAsync(null, CancellationToken.None));
+        Assert.Contains((App, 1, SweepLabels.NeedsYou), _github.LabelAdds);
+        Assert.Single(_github.RepoComments, c => c.Body.Contains("edit it to have chargehand try again", StringComparison.Ordinal));
+
+        _github.OpenIssuesByRepo[App] = [Issue(1, body: "Now with the missing detail.")];
+        await sweep.RunAsync("manual", CancellationToken.None);
+
+        Assert.Equal(2, (await _pool.ItemsAsync(null, CancellationToken.None)).Count);
+    }
+
+    [Fact]
+    public async Task An_unsorted_answer_writes_nothing_and_is_sorted_again()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1, "Garbled")];
+        _sorter.Garbled.Add("Garbled");
+        var sweep = Sweep(200, App);
+
+        var report = await sweep.RunAsync("manual", CancellationToken.None);
+        await sweep.RunAsync("manual", CancellationToken.None);
+
+        Assert.Equal(1, Assert.Single(report.Repositories).Deferred);
+        Assert.Equal(2, _sorter.Calls);
+        Assert.Empty(_github.LabelAdds);
+        Assert.Empty(_github.RepoComments);
+    }
+
+    [Fact]
+    public async Task A_fixes_line_with_a_number_too_large_does_not_stop_the_repository()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1)];
+        _github.OpenPulls.Add(new ReviewablePull(9, "fix: x", "Fixes #99999999999.", "chargehand[bot]", "abc1234", false, "chargehand/run-1"));
+
+        var report = await Sweep(200, App).RunAsync("manual", CancellationToken.None);
+
+        Assert.Null(Assert.Single(report.Repositories).Problem);
+        Assert.Single(await _pool.ItemsAsync(null, CancellationToken.None));
+    }
+
     private sealed class NoStarter : IPoolStarter
     {
         public Task<string?> StartAsync(PoolStartRequest request, CancellationToken ct) => Task.FromResult<string?>(null);
@@ -256,9 +306,13 @@ public sealed class IssueSweepTests : IDisposable
 
         public Dictionary<string, SweepVerdict> Verdicts { get; } = [];
 
+        public HashSet<string> Garbled { get; } = [];
+
         public Task<SortResult> SortAsync(IntakeIssue issue, string repository, string? claudeMd, CancellationToken ct)
         {
             Calls++;
+            if (Garbled.Contains(issue.Title))
+                return Task.FromResult(ModelSweepSorter.Unsorted);
             return Task.FromResult(new SortResult(Verdicts.GetValueOrDefault(issue.Title, SweepVerdict.Ready), "M", "Looks right."));
         }
     }

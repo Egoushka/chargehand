@@ -5,7 +5,8 @@ using System.Text.Json.Serialization;
 
 namespace Chargehand.Automation;
 
-internal sealed record SweepEntry(string Hash, SweepVerdict Verdict, string Size, string Reason);
+/// <param name="QueuedHash">The issue's hash when the sweep last queued it into the pool; null: never queued.</param>
+internal sealed record SweepEntry(string Hash, SweepVerdict Verdict, string Size, string Reason, string? QueuedHash = null);
 
 internal sealed record SweepFile(Dictionary<string, SweepEntry> Entries);
 
@@ -41,22 +42,46 @@ public sealed class SweepState(string path)
             return Task.FromResult(Load().TryGetValue(key, out var e) ? e.Verdict : (SweepVerdict?)null);
     }
 
+    /// <summary>The issue's hash when the sweep last queued it; null when it never did.</summary>
+    public Task<string?> QueuedHashAsync(string key)
+    {
+        lock (_gate)
+            return Task.FromResult(Load().TryGetValue(key, out var e) ? e.QueuedHash : null);
+    }
+
+    /// <summary>Records that the issue was queued at <paramref name="hash"/>, so the same text is not queued twice.</summary>
+    public Task MarkQueuedAsync(string key, string hash)
+    {
+        lock (_gate)
+        {
+            if (Load().TryGetValue(key, out var e))
+                Save(key, e with { QueuedHash = hash });
+        }
+        return Task.CompletedTask;
+    }
+
     public Task PutAsync(string key, string hash, SortResult r)
     {
         lock (_gate)
         {
-            var entries = new Dictionary<string, SweepEntry>(Load()) { [key] = new SweepEntry(hash, r.Verdict, r.Size, r.Reason) };
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-            var temp = $"{path}.tmp";
-            using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                stream.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new SweepFile(entries), SweepStateJsonContext.Default.SweepFile)));
-                stream.Flush(flushToDisk: true);
-            }
-            File.Move(temp, path, overwrite: true);
-            _entries = entries;
+            var queued = Load().TryGetValue(key, out var e) ? e.QueuedHash : null;
+            Save(key, new SweepEntry(hash, r.Verdict, r.Size, r.Reason, queued));
         }
         return Task.CompletedTask;
+    }
+
+    private void Save(string key, SweepEntry entry)
+    {
+        var entries = new Dictionary<string, SweepEntry>(Load()) { [key] = entry };
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var temp = $"{path}.tmp";
+        using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.Write(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new SweepFile(entries), SweepStateJsonContext.Default.SweepFile)));
+            stream.Flush(flushToDisk: true);
+        }
+        File.Move(temp, path, overwrite: true);
+        _entries = entries;
     }
 
     private Dictionary<string, SweepEntry> Load()

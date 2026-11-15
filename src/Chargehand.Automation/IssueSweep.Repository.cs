@@ -86,8 +86,10 @@ public sealed partial class IssueSweep
         foreach (var pull in await host.OpenPullsAsync(repository, ct))
         {
             if (!GitHubIntake.IsChargehandBranch(pull.HeadBranch, pull.SameRepository)) continue;
+            // The body carries the goal, so an issue's own text can name any number here: an unparseable one is skipped, a quoted one only holds that issue back while the pull request is open.
             foreach (Match m in Fixes().Matches(pull.Body))
-                found.Add(int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture));
+                if (int.TryParse(m.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var n))
+                    found.Add(n);
         }
 
         return found;
