@@ -139,7 +139,7 @@ A pull request from a fork, a branch that is not `chargehand/<name>`, a closed p
 
 ## Reviewing every pull request
 
-Off unless `review_pulls` is `true`. Each poll then lists the open pull requests of every watched repository, whoever wrote them. Drafts and pull requests whose author's login ends in `[bot]` are skipped. For a head commit with no review yet (kept in `intake/github.json` as `owner/repo#12@<sha>`), chargehand:
+Off unless `review_pulls` is `true`. Each poll then lists the open pull requests of every watched repository whose author is in `allowed_authors` or is the integrator's App (`app_login`, default `<app_slug>[bot]`); anyone else's pull request is reviewed only on an allowed author's `@chargehand review` (below). Drafts and other `[bot]` authors are skipped. For a head commit with no review yet (kept in `intake/github.json` as `owner/repo#12@<sha>`), chargehand:
 
 1. fetches `refs/pull/<n>/head` into the repository's `path` checkout with the server's git credentials (kept as `refs/chargehand/pull/<n>`; works for a fork too);
 2. reads the diff from GitHub (cut at 60000 characters, with a marker line saying so);
@@ -152,12 +152,65 @@ Never twice for one commit: the commit is recorded before the comment, and the m
 | Key | Default | When over it |
 |---|---|---|
 | `review_pulls` | false | off: nothing is reviewed (a review already running still gets its comment) |
+| `review_block_confidence` | 0.8 | a finding at or above it blocks the merge and starts a review round; a review with none is the approval a `merge` repository merges on ([merging after chargehand's review](driven.md#merging-after-chargehands-review)) |
 
 Reviews share `max_concurrent` with the batches: a review waits while that many batches and reviews run. A review is admitted as `automation.account` like a batch, so the account's dollar caps bound it; `max_reviews_per_day` is ignored. A diff GitHub will not render (too large) is skipped with a line on stderr. The run reads the head commit and nothing else; the pull request's text is untrusted, and the preset has no edit, shell or web tools. To turn it on add `"review_pulls": true` to `automation.github`. A server whose checkouts are mounted read-only cannot fetch the head itself: keep `refs/pull/*/head` fetched from outside (`git fetch origin '+refs/pull/*/head:refs/pull/*/head'` in the job that updates the checkouts) and chargehand uses that ref.
 
 ### Reviewing one pull request on request
 
 With `review_pulls` off (the default), an allowed author gets one review of any open pull request (a draft or a bot's included, a fork too) by commenting `@chargehand review` in its conversation. Intake reviews the pull request's **current head** as above: one read-only run, one comment with the marker. A head that already has a review is not reviewed again, and the same comment twice starts one run. A push is a new head: comment again to review it. A quoted line (`> @chargehand review`) is no request, and `@chargehand review` takes the place of the plain mention, so it starts no review round. A request waits while `max_concurrent` is full. It is kept in memory only: a restart before the run starts drops it, and commenting again asks again. With `review_pulls` on, every head is reviewed anyway.
+
+## The sweep
+
+[ADR 0101](../adr/0101-the-issue-sweep.md). The label above starts one issue; the sweep finds the work itself. It reads every open issue of the watched repositories, sorts each into ready, needs the owner, blocked or epic, labels it, and queues the ready ones into the task pool ([ADR 0099](../adr/0099-chargehand-is-the-task-pool.md)), where workers take them. Off unless the profile has `automation.sweep`, and it needs `http.pool` (the server log says so when that is missing).
+
+```json
+{ "automation": { "sweep": {
+  "enabled": true,
+  "at": ["08:00", "15:00", "20:00"],
+  "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+  "time_zone": "Europe/Berlin",
+  "max_sorts_per_sweep": 200 } } }
+```
+
+| Key | Default | What |
+|---|---|---|
+| `enabled` | false | sweep on the clock below; the button and `POST /v1/sweep` work either way |
+| `at` | 08:00, 15:00, 20:00 | times of day, `HH:mm`, in `time_zone` |
+| `days` | every day | the days a scheduled sweep runs |
+| `time_zone` | UTC | a time zone id |
+| `max_sorts_per_sweep` | 200 | the most model calls one sweep makes; an unchanged issue costs none, and the rest wait for the next sweep |
+
+**Only trusted authors.** The sweep takes an issue only when its author is in `allowed_authors` or is the integrator's App (the sub-issues of a split). Any other author's issue is skipped before any model call: on a public repository anyone can open an issue, and its text would become a worker's goal. An allowed author runs such an issue with the `chargehand` label, as before.
+
+**Skipped without a model call:** the labels `you`, `in-progress` and `agent:skip`; an issue with a live claim ref; an issue that already has an open pool item, a running intake task or an open chargehand pull request. An issue whose body names an open `#n` (or `owner/repo#n`) after "blocked by", "depends on" or "after" is `agent:blocked` with no call either.
+
+**The sorting pass.** One call per remaining issue to `intake_model`, with the title, the body (cut at 8 KiB) and the labels fenced as untrusted text, and the first 2 KiB of the repository's `CLAUDE.md` as context. The answer is bound to a schema: a verdict, a size (S, M or L) and a one-sentence reason; an answer that does not fit counts as needs-owner with the reason `unsorted`. The verdict is kept per issue with a hash of its title, body and labels (`intake/sweep.json`), so an unchanged issue is not sorted again.
+
+**The labels.** The sweep owns one set and creates, or recolours, it in each repository at the start of a sweep. It never deletes a label.
+
+| Label | Meaning |
+|---|---|
+| `agent:ready` | an agent can do it now |
+| `agent:needs-you` | needs the owner: a decision, an account, a secret, physical access |
+| `agent:blocked` | waits on an open issue or an outside step |
+| `agent:epic` | too big for one change; split first |
+| `agent:skip` | set by the owner: the sweep never touches it |
+| `size:S`, `size:M`, `size:L` | the sorting pass's estimate |
+
+Each verdict replaces the other `agent:` verdict labels. A comment with the reason, behind a hidden marker, is posted only when the verdict changes from a known one, or on a first needs-owner, blocked or epic verdict; a ready issue's answer is its pull request.
+
+**Into the pool.** A ready issue becomes one pool item: source `sweep`, scope `issue-<n>` (so issues run in parallel), the title and body as the goal, priority 2 for `priority:urgent`, 1 for `priority:high`, else 0. The goal ends with `Fixes #<n>.`, and the size sets the governor's size class and how many hand-offs a worker gets before the item counts as failed (S 3, M 6, L 12). The label and the sweep never both start one issue: intake does not start a labelled issue that has a pool item, and the sweep skips one intake runs.
+
+**Epics.** An epic is split by a read-only run that returns at most 10 sub-issues (title and body) as a structured result; the worker has no GitHub access. The server checks and secret-scans the list, files the sub-issues as the App, links them in a task list on the parent and labels it `agent:blocked`. The split's progress is kept in `intake/split.json`, so a restart resumes it without filing twice. The next sweep sorts the sub-issues.
+
+**A repository that keeps failing.** Pool runs do not pass through intake's breaker, so the pool has its own per repository: 3 failed runs in a row hold its items with reason `breaker` for 120 minutes. A start the repository's own set-up refuses (a checkout that tracks a denied file, an App that cannot push, a missing checkout) holds them with reason `problem` for 15 minutes, is not counted as a failure, and shows once, with its fix, on the Sweep page.
+
+**API (owner's key only).** `POST /v1/sweep` starts a sweep and answers `202` with its id, or the running one's id (one sweep at a time). `GET /v1/sweep` (`sweep/v1`) is the schedule, the running sweep, the last one's counts per repository and verdict, the next time, the pool's holds, the needs-you list and the running count per repository. `GET /v1/sweep/settings` (`sweep-settings/v1`) shows each setting as profile, override and in force; `PUT /v1/sweep/settings` with `{"enabled": false, "at": ["09:00"], "days": ["saturday"], "repositories": {"octo/repo": false}, "subscription_hold_percent": 70}` replaces the overrides, and a null or missing field clears its own. The overrides are kept in `intake/sources.json` and read at the next tick. The console's **Sweep** page shows the same, with **Scan now** and the settings.
+
+**Events.** `chargehand.sweep.started`, `chargehand.sweep.finished` (the counts) and `chargehand.sweep.problem` go to the event log ([ADR 0090](../adr/0090-an-event-log-inside-chargehand.md)).
+
+**Merge.** Ready issues end in pull requests that merge on chargehand's own clean review when the repository is `merge` ([merging after chargehand's review](driven.md#merging-after-chargehands-review)). With `review_pulls` off nothing merges, and the server log says so.
 
 ## Not covered
 
