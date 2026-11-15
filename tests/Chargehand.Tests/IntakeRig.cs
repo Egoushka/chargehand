@@ -277,9 +277,9 @@ internal sealed class FakeRunLog : IRunLog
     }
 
     /// <summary>Ends a plain (not driven) run with a result, as the run service writes it.</summary>
-    public void Finish(string run, ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null, ResultError? error = null) =>
+    public void Finish(string run, ResultStatus status, string summary, IReadOnlyList<Claim>? claims = null, IReadOnlyList<Evidence>? evidence = null, ResultError? error = null, ReviewVerdict? verdict = null) =>
         _runs[run] = new RunRecord(run, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "review", null, null,
-            new ResultContract("result/v1", run, "worker", new string('0', 32), new PromptChain([], new AsSent("v", "build", "m", "2026-10-18")), status, summary, claims ?? [], evidence ?? [], [], [], 0.8, new Usage(0, 0, 0, 0, null), error));
+            new ResultContract("result/v1", run, "worker", new string('0', 32), new PromptChain([], new AsSent("v", "build", "m", "2026-10-18")), status, summary, claims ?? [], evidence ?? [], [], [], 0.8, new Usage(0, 0, 0, 0, null), error) { Verdict = verdict });
 
     public void Forget(string run) => _starts.Remove(run);
 

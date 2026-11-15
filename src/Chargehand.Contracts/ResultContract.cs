@@ -24,7 +24,16 @@ public sealed record ResultContract(
 {
     /// <summary>The run's friendly name, like "Brave Capybara". A separate property, not a constructor parameter, so the published constructor keeps its shape.</summary>
     public string? Name { get; init; }
+
+    /// <summary>The review preset's own judgement of the change (issue 446), filled by the preset itself. Absent for a result no preset scores this way. A separate
+    /// property, not a constructor parameter, so the published constructor keeps its shape.</summary>
+    public ReviewVerdict? Verdict { get; init; }
 }
+
+/// <summary>A review's verdict (issue 446): <c>Approve</c> when it found nothing that must change, <c>Changes</c> for at least one actionable finding,
+/// <c>Blocked</c> for a critical or security issue that must not ship.</summary>
+[JsonConverter(typeof(SnakeCaseEnumConverter<ReviewVerdict>))]
+public enum ReviewVerdict { Approve, Changes, Blocked }
 
 /// <summary>A result's confidence (issue 447): on a completed result, the share of its claims the support check found supported
 /// (<c>SupportCheck</c>), or the worker's own figure when no claim was judged; none on any other result, which answered nothing.

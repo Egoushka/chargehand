@@ -57,6 +57,16 @@ public class ResultAssemblerTests
     }
 
     [Fact]
+    public void Verdict_passes_through_from_the_worker_block()
+    {
+        var block = JsonNode.Parse(GoodBlock)!.AsObject();
+        block["verdict"] = "approve";
+        var outcome = ResultAssembler.Assemble($"```json\n{block.ToJsonString()}\n```", Envelope());
+        Assert.Empty(outcome.Errors);
+        Assert.Equal(ReviewVerdict.Approve, outcome.Contract!.Verdict);
+    }
+
+    [Fact]
     public void Worker_cannot_override_orchestrator_fields()
     {
         var block = JsonNode.Parse(GoodBlock)!.AsObject();
