@@ -395,6 +395,9 @@ public sealed class Orchestrator(
 
     public Task<IReadOnlyList<RepositoryHead>> RepositoriesAsync(CancellationToken ct) => RepositoryNames.HeadsAsync(RepositoryNames.List(profile), ct);
 
+    /// <summary>Deletes the oldest clones under worker_root/.checkouts (<see cref="CheckoutSweep.Prune"/>, issue #509). Call once, at start, before any run can make or read one.</summary>
+    public IReadOnlyList<string> SweepCheckouts() => CheckoutSweep.Prune(profile.WorkerRoot);
+
     public async Task<ResultContract> RecordCancelledAsync(RunRequest request, string runId, string? parentRunId, Action<RunStatus>? progress = null, string? actor = null)
     {
         var now = DateTimeOffset.UtcNow;
@@ -705,7 +708,7 @@ public sealed class Orchestrator(
         if (!Directory.Exists(Path.Combine(dir, ".git")) || await Git(dir, ct, "rev-parse", "HEAD") != commit)
         {
             // Built beside the final path and moved into it, so an interrupted clone is never reused.
-            // ponytail: a failed clone leaves its temporary directory behind; sweep .checkouts by hand if that piles up.
+            // ponytail: a failed clone leaves its temporary directory behind; CheckoutSweep (issue #509) clears it with the rest once it idles past MaxAge.
             var temp = $"{dir}.tmp-{Guid.NewGuid():N}";
             var parent = Path.GetDirectoryName(dir)!;
             Directory.CreateDirectory(parent);

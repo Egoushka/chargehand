@@ -120,7 +120,8 @@
       "max_starts_per_hour": 30,
       "breaker_cooldown_minutes": 120,
       "priority_labels": null,
-      "harvest": null
+      "harvest": null,
+      "subgate": null
     },
     "schedules": null,
     "account": null,
