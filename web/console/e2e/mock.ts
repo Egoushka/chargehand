@@ -12,6 +12,7 @@ import {
 } from '../src/testing/learning';
 import { routerBody } from '../src/testing/router';
 import * as st from '../src/testing/start';
+import * as sw from '../src/testing/sweep';
 
 export const ORIGIN = `http://127.0.0.1:${process.env.CONSOLE_E2E_PORT ?? '4173'}`;
 export const LOGIN = fx.LOGIN;
@@ -35,6 +36,7 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
   const mock: Mock = { calls: [] };
   let sources: ReturnType<typeof adm.intakeSources> | undefined;
   let limits: ReturnType<typeof adm.intakeLimits> | undefined;
+  let sweepSettings: ReturnType<typeof sw.sweepSettings> | undefined;
   await page.route('**/v1/**', async (route) => {
     const request = route.request();
     const { pathname } = new URL(request.url());
@@ -151,6 +153,18 @@ export async function mockApi(page: Page, options: Options = {}): Promise<Mock> 
         limits = limits ?? adm.intakeLimits();
         if (request.method() === 'PUT') limits = adm.limitsSet(limits, body);
         return route.fulfill({ json: limits });
+      case '/v1/sweep':
+        if (options.account)
+          return route.fulfill({ status: 403, json: { errors: ['owner only'] } });
+        return request.method() === 'POST'
+          ? route.fulfill({ status: 202, json: { id: sw.SWEEP_ID } })
+          : route.fulfill({ json: sw.sweep({}, now) });
+      case '/v1/sweep/settings':
+        if (options.account)
+          return route.fulfill({ status: 403, json: { errors: ['owner only'] } });
+        sweepSettings = sweepSettings ?? sw.sweepSettings();
+        if (request.method() === 'PUT') sweepSettings = sw.sweepSettingsSet(sweepSettings, body);
+        return route.fulfill({ json: sweepSettings });
       case '/v1/limits/daily-warning':
         return options.account
           ? route.fulfill({ status: 403, json: { errors: ['owner only'] } })

@@ -20,6 +20,7 @@ import { Repositories } from './screens/repositories/Repositories';
 import { Runs } from './screens/runs/Runs';
 import { Settings } from './screens/settings/Settings';
 import { Start } from './screens/start/Start';
+import { Sweep } from './screens/sweep/Sweep';
 import { System } from './screens/system/System';
 import { Root } from './shell/Root';
 
@@ -83,6 +84,7 @@ const routeTree = rootRoute.addChildren([
   child('analytics', Analytics),
   child('learning', Learning),
   child('intake', Intake),
+  child('sweep', Sweep),
   child('settings', Settings),
   child('repositories', Repositories),
   child('accounts', Accounts),
