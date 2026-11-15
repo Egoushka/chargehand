@@ -115,8 +115,8 @@ public class SweepSorterTests
     public async Task The_reason_is_plain_and_inert()
     {
         var r = await Sort(new Scripted("""{"verdict":"ready","size":"S","reason":"@octo see [x](http://e.test) ![i](http://e.test/i.png) <b>bold</b>\n\nok"}"""), Issue());
-        Assert.DoesNotContain("@octo", r.Reason);
-        Assert.Contains("@\u200Bocto", r.Reason);
+        Assert.DoesNotContain("@octo", r.Reason, StringComparison.Ordinal);
+        Assert.Contains("@\u200Bocto", r.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain("](", r.Reason);
         Assert.DoesNotContain("<", r.Reason);
         Assert.DoesNotContain("\n", r.Reason);
