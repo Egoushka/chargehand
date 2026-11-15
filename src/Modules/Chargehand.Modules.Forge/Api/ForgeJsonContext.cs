@@ -10,6 +10,7 @@ namespace Chargehand.Modules.Forge.Api;
 [JsonSerializable(typeof(BranchUpdate))]
 [JsonSerializable(typeof(SquashMerge))]
 [JsonSerializable(typeof(CommentBody))]
+[JsonSerializable(typeof(LabelsBody))]
 [JsonSerializable(typeof(GraphQlRequest))]
 [JsonSerializable(typeof(PullRequestVariables))]
 [JsonSerializable(typeof(NodeVariables))]
@@ -36,6 +37,8 @@ internal sealed record BranchUpdate(string ExpectedHeadSha);
 internal sealed record SquashMerge(string MergeMethod, string Sha, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CommitMessage = null);
 
 internal sealed record CommentBody(string Body);
+
+internal sealed record LabelsBody(IReadOnlyList<string> Labels);
 
 /// <summary>A GraphQL call; <see cref="Variables"/> is one of the variables records of this context.</summary>
 internal sealed record GraphQlRequest(string Query, object Variables);

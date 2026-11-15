@@ -377,6 +377,7 @@ describe('a phone', () => {
       'Analytics',
       'Learning',
       'Intake and automation',
+      'Sweep',
       'Settings',
       'Repositories',
       'Accounts and keys',

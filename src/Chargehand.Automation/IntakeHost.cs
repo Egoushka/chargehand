@@ -41,6 +41,12 @@ public sealed record LabelEvent(long Id, string Actor);
 /// <param name="CloneUrl">The https URL to clone it from; it holds no credential.</param>
 public sealed record InstalledRepository(string FullName, string CloneUrl, bool Archived);
 
+/// <summary>Whether an issue or pull request is open.</summary>
+public enum IssueState { Open, Closed }
+
+/// <summary>What <see cref="IIntakeHost.SyncLabelAsync"/> did.</summary>
+public enum LabelSync { Created, Updated, Unchanged }
+
 /// <summary>What intake does on GitHub (ADR 0051), each call as the GitHub App. It reads issues and comments, writes comments and creates the trigger label, nothing else.</summary>
 public interface IIntakeHost
 {
@@ -62,6 +68,9 @@ public interface IIntakeHost
 
     /// <summary>The bodies of an issue's or pull request's conversation comments, oldest first: where the hidden markers of fix attempts and review rounds are.</summary>
     Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct);
+
+    /// <summary>The bodies of the conversation comments that <paramref name="login"/> wrote, oldest first: a marker that gates a merge is read only from the App's own.</summary>
+    Task<IReadOnlyList<string>> CommentBodiesByAsync(string repository, int number, string login, CancellationToken ct);
 
     /// <summary>The open pull requests of a repository, drafts included.</summary>
     Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct);
@@ -85,6 +94,23 @@ public interface IIntakeHost
     /// <summary>Creates the label in the repository when it has none of that name.</summary>
     /// <returns>Whether it was created.</returns>
     Task<bool> EnsureLabelAsync(string repository, string label, CancellationToken ct);
+
+    /// <summary>Every open issue of a repository, all pages, pull requests left out.</summary>
+    Task<IReadOnlyList<IntakeIssue>> OpenIssuesAsync(string repository, CancellationToken ct);
+
+    /// <summary>Whether the issue or pull request is open; null when GitHub answers 404 or 403.</summary>
+    Task<IssueState?> IssueStateAsync(string repository, int number, CancellationToken ct);
+
+    /// <summary>Creates <paramref name="label"/> or brings its colour and description to the given ones. A label outside the sweep's set is never touched.</summary>
+    Task<LabelSync> SyncLabelAsync(string repository, SweepLabel label, CancellationToken ct);
+
+    /// <summary>Adds and removes labels on an issue; removing one it does not carry is not an error.</summary>
+    Task SetLabelsAsync(string repository, int number, IReadOnlyList<string> add, IReadOnlyList<string> remove, CancellationToken ct);
+
+    /// <returns>The new issue's number.</returns>
+    Task<int> CreateIssueAsync(string repository, string title, string body, CancellationToken ct);
+
+    Task EditBodyAsync(string repository, int number, string body, CancellationToken ct);
 }
 
 /// <summary>The id of a batch that started, or why it did not.</summary>

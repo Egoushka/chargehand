@@ -10,6 +10,7 @@ export interface Screen {
     | '/analytics'
     | '/learning'
     | '/intake'
+    | '/sweep'
     | '/settings'
     | '/repositories'
     | '/accounts'
@@ -94,12 +95,20 @@ export const SCREENS: readonly Screen[] = [
     blurb: 'Issues and review comments that start runs.',
   },
   {
+    to: '/sweep',
+    label: 'Sweep',
+    icon: 'refresh',
+    group: 'configure',
+    ownerOnly: true,
+    blurb: 'What the issue sweep read in each repository, and a button to run it now.',
+  },
+  {
     to: '/settings',
     label: 'Settings',
     icon: 'sliders',
     group: 'configure',
     ownerOnly: true,
-    blurb: 'Intake caps and the pause switch, without a restart.',
+    blurb: 'Intake caps, the pause switch and the sweep schedule, without a restart.',
   },
   {
     to: '/repositories',

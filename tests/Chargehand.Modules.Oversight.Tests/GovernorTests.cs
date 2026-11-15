@@ -209,6 +209,40 @@ public class GovernorTests
     }
 
     [Fact]
+    public void A_subscription_session_over_its_budget_is_logged_not_stopped()
+    {
+        var g = new Governor(new SessionGovernor(GovernorMode.Enforce, BudgetUsd: 1m, SizeClass: "M", SpendActs: false));
+        var decisions = g.OnEvent(Usage(1, 1), 1, 1.2m, Now);
+        Assert.Equal(["spend_checkpoint", "spend_stop"], decisions.Select(d => d.Rule));
+        Assert.All(decisions, d => Assert.Equal((GovernorMode.Observe, false), (d.Mode, d.Acted)));
+    }
+
+    [Fact]
+    public void An_api_key_session_over_its_budget_stops()
+    {
+        var g = new Governor(new SessionGovernor(GovernorMode.Enforce, BudgetUsd: 1m, SizeClass: "M", SpendActs: true));
+        var stop = g.OnEvent(Usage(1, 1), 1, 1.2m, Now).Single(d => d.Rule == "spend_stop");
+        Assert.Equal(GovernorMode.Enforce, stop.Mode);
+        Assert.Equal("budget_spent", Governor.StopReason(stop));
+    }
+
+    [Fact]
+    public void A_subscription_session_still_acts_on_the_context_checkpoint()
+    {
+        var g = new Governor(new SessionGovernor(GovernorMode.Enforce, BudgetUsd: 1m, ContextTokens: 100_000, SpendActs: false));
+        var d = Assert.Single(g.OnEvent(Usage(2_000, 150_000), 1, null, Now));
+        Assert.Equal((GovernorMode.Enforce, "checkpoint_context"), (d.Mode, Governor.StopReason(d)));
+    }
+
+    [Fact]
+    public void ToSession_carries_the_credential_kind_into_SpendActs()
+    {
+        var settings = new DrivenGovernor(GovernorMode.Enforce);
+        Assert.False(settings.ToSession("M", null, 0m, subscription: true).SpendActs);
+        Assert.True(settings.ToSession("M", null, 0m).SpendActs);
+    }
+
+    [Fact]
     public void Every_decision_carries_where_the_budget_came_from()
     {
         var source = new BudgetSource("history", 23, 80, "repository");

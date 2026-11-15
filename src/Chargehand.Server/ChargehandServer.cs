@@ -92,7 +92,7 @@ public static partial class ChargehandServer
 
     public static WebApplication Create(ServerSettings settings, Orchestrator orchestrator, IRunLog log, Chargehand.Driven.DrivenRun? driven = null, Chargehand.Automation.GitHubIntake? intake = null,
         Func<Chargehand.Automation.IMorningSource, Chargehand.Automation.Scheduler>? scheduler = null,
-        Chargehand.Automation.PhoneAnswers? phone = null)
+        Chargehand.Automation.PhoneAnswers? phone = null, Chargehand.Automation.SweepParts? sweep = null)
     {
         var address = IPAddress.Parse(settings.Listen);
         IReadOnlyList<string> hosts = settings.AllowedHosts ?? [];
@@ -172,6 +172,7 @@ public static partial class ChargehandServer
             builder.Services.AddHostedService(_ => new HumanEditRefresher(driven.PrCheckEvery, driven.RefreshHumanEditsAsync));
 
         PoolRegistration.AddPool(builder.Services, settings, log, driven, automationAccount);
+        SweepRegistration.AddSweep(builder.Services, settings, sweep, intake, log, automationAccount);
         var app = builder.Build();
         app.UseHostFiltering();
         var expected = Encoding.UTF8.GetBytes($"Bearer {settings.ApiKey}");
@@ -316,6 +317,7 @@ public static partial class ChargehandServer
         }
         ConsoleSources.Map(app, settings, intake);
         ConsoleLimits.Map(app, intake);
+        ConsoleSweep.Map(app, settings.Profile?.ClaudeCode?.SubscriptionHoldPercent, settings.Clock ?? TimeProvider.System);
         ConsoleRank.Map(app, settings, driven);
         ConsoleDailyWarning.Map(app, settings, log, new DailyWarningLimit(settings.DailyWarningPath));
         ConsoleRunApproval.Map(app);

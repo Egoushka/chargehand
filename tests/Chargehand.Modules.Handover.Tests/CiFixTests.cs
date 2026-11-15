@@ -334,7 +334,7 @@ public class CiFixTests
     }
 
     [Fact]
-    public async Task Passing_checks_on_a_merge_repository_without_auto_merge_enable_it_through_the_integration_pass()
+    public async Task Passing_checks_on_a_merge_repository_without_auto_merge_wait_for_chargehands_review()
     {
         var ci = new Ci { FailingAfter = _ => [] };
         var host = HostFor(ci);
@@ -342,8 +342,8 @@ public class CiFixTests
 
         var result = await Make(host).FollowAsync(Target(), ci.Session(), _ => { }, default);
 
-        Assert.Equal(IntegrationAction.Merged, result.Action);
-        Assert.Contains(host.Calls, c => c.StartsWith("merge head0", StringComparison.Ordinal));
+        Assert.Equal(IntegrationAction.AwaitingReview, result.Action);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal) || c.StartsWith("auto-merge", StringComparison.Ordinal));
         Assert.Empty(ci.Requests);
     }
 

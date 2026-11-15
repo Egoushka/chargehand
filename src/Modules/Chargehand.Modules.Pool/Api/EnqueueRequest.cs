@@ -11,6 +11,8 @@ namespace Chargehand.Modules.Pool.Api;
 /// <param name="Body">Up to <see cref="MaxBodyBytes"/> of UTF-8.</param>
 /// <param name="Priority">0 normal, higher first; 0–100.</param>
 /// <param name="PullRequest">The open pull request this is work on, when it is one.</param>
+/// <param name="Issue">The issue this fixes, when it is one; set by the sweep, not by the <c>enqueue</c> tool.</param>
+/// <param name="Size"><c>S</c>, <c>M</c> or <c>L</c>, or null.</param>
 /// <param name="Source">Who enqueues: <c>enqueue</c> for the tool.</param>
 public sealed record EnqueueRequest(
     string? Repository,
@@ -19,7 +21,9 @@ public sealed record EnqueueRequest(
     string? Body,
     int Priority = 0,
     int? PullRequest = null,
-    string Source = "enqueue")
+    string Source = "enqueue",
+    int? Issue = null,
+    string? Size = null)
 {
     /// <summary>A body larger than this is refused with <c>413 too_large</c>.</summary>
     public const int MaxBodyBytes = 16 * 1024;
@@ -39,12 +43,19 @@ public sealed record EnqueueRequest(
             return Invalid("priority must be 0 to 100");
         if (PullRequest is < 1)
             return Invalid("pull_request must be a positive number");
+        if (IssueAndSize() is { } refusal)
+            return refusal;
         if (Encoding.UTF8.GetByteCount(Body) > MaxBodyBytes)
             return new PoolRefusal(413, "too_large", $"body must be at most {MaxBodyBytes} bytes of UTF-8");
         if (DiffScan.ScanText(Title + "\n" + Body, []) is { Count: > 0 } kinds)
             return new PoolRefusal(422, "secret", $"title or body holds a credential-shaped value ({string.Join(", ", kinds)}); remove it");
         return null;
     }
+
+    private PoolRefusal? IssueAndSize() =>
+        Issue is < 1 ? Invalid("issue must be a positive number")
+        : Size is not (null or "S" or "M" or "L") ? Invalid("size must be S, M or L")
+        : null;
 
     private static PoolRefusal Invalid(string message) => new(400, "invalid", message);
 }

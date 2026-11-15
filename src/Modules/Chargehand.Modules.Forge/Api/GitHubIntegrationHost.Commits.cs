@@ -12,10 +12,27 @@ public partial interface IIntegrationHost
     /// A forge that cannot read this, or a pull request whose history no longer holds <paramref name="afterSha"/>, throws.</summary>
     Task<IReadOnlyList<PrCommit>> CommitsAfterAsync(RemoteRepository repository, int number, string afterSha, CancellationToken ct) =>
         throw new IntegrationException($"{Name} cannot list a pull request's commits from here");
+
+    /// <summary>Puts a label on the pull request; a forge without labels does nothing.</summary>
+    Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>Turns auto-merge off on the pull request; chargehand merges by itself, pinned to the head its own review cleared, so an auto-merge armed earlier must not outlive a later push.</summary>
+    Task DisableAutoMergeAsync(RemoteRepository repository, string nodeId, CancellationToken ct) => Task.CompletedTask;
 }
 
 public sealed partial class GitHubIntegrationHost
 {
+    private static string? EnabledBy(JsonElement request) =>
+        request.ValueKind == JsonValueKind.Object && request.TryGetProperty("enabledBy", out var by) && by.ValueKind == JsonValueKind.Object && by.TryGetProperty("login", out var login) ? login.GetString() : null;
+
+    public async Task DisableAutoMergeAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
+    {
+        using var _ = await GraphQlAsync(repository, "turning auto-merge off", "mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){pullRequest{number}}}", new NodeVariables(nodeId), ct);
+    }
+
+    public async Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct) =>
+        await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/labels", new LabelsBody([label]), "the label", ct);
+
     public async Task<IReadOnlyList<PrCommit>> CommitsAfterAsync(RemoteRepository repository, int number, string afterSha, CancellationToken ct)
     {
         var commits = CommitList(await RestAsync(repository, HttpMethod.Get,

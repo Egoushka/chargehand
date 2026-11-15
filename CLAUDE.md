@@ -62,6 +62,7 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
   `SchemaCompatTests` fails `scripts/check.sh` and CI on a breaking change since the latest `v*` tag.
 - Public text says "citations checked", not "claims verified", until the support check ships (ROADMAP.md, 0.8).
 - On the devbox `scripts/check.sh` stops at the Coyote rewrite step of `Chargehand.Modules.Batches.CoyoteTests` (`dotnet tool run coyote` exits 1) before any test runs. Run `dotnet test tests/Chargehand.Tests --filter ...` and `dotnet format --verify-no-changes` for the project you touched, and say so in the PR.
+- A new sentence in `docs/guide` needs a citation in its paragraph (a backticked path into `src/` or `tests/`, or `<!-- cites: path -->`), or `GuideClaimsTests` fails; a `cites:` marker must be the last thing on its line, one per line, or `chargehand claims check` (CI) calls it malformed. Run both locally after a docs change.
 - The `events` MCP tool and `GET /v1/events` share one filter set (`EventQuery`); a new filter goes into `EventFilter`, `SqliteEventLog.Select`, `EventRoutes.Query` and the tool's schema together. The tool list is asserted in `McpTests` and `StdioMcpTests`.
 - The CLI flag that should stop pnpm switching to the `packageManager` version does not work; set the environment
   variable instead (`--ignore-pnpmfile` itself works).

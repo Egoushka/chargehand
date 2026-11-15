@@ -223,7 +223,7 @@ public sealed partial class TaskRunner
         await volumes.WriteTaskAsync(runId, Bare
             ? new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(ModelOf(runId)), left.Usd, Prices: settings.Prices, CheckRetries: 0, Bare: true)
             : new SessionTask(runId, goal, branch, maxTurns, maxMinutes, preset.NoProgressMinutes * 60, left.Tokens, SessionModel(ModelOf(runId)), left.Usd, Prices: settings.Prices,
-                Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget), Environment: settings.Shared?.ForSession(tools), Acceptance: task.Acceptance,
+                Governor: settings.Governor?.ToSession(task.Size, task.BudgetUsd, spentUsd, budget, subscription: !settings.Priced), Environment: settings.Shared?.ForSession(tools), Acceptance: task.Acceptance,
                 CheckRetries: preset.CheckRetries, ReminderMinutes: preset.GoalReminderMinutes > 0 ? preset.GoalReminderMinutes : null, ReminderTurns: preset.GoalReminderTurns,
                 Check: PrePushCheck), ct);
 

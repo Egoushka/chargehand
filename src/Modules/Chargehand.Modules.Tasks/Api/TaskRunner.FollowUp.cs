@@ -134,7 +134,7 @@ public sealed partial class TaskRunner
         {
             var first = await integrator.IntegrateAsync(target, Report, ct, headMoved);
             var detail = $"integration: {first.Detail}";
-            if (first.Action is IntegrationAction.Asked or IntegrationAction.AutoMergeEnabled)
+            if (first.Action is IntegrationAction.Asked or IntegrationAction.AutoMergeEnabled or IntegrationAction.AwaitingReview)
             {
                 var last = await integrator.FollowAsync(target, (request, token) => FixAsync(task, fixes, request, token), Report, ct, headMoved, watch);
                 detail += $"; {last.Detail}{(fixes.Fixes > 0 ? string.Create(CultureInfo.InvariantCulture, $" ({fixes.Fixes} CI fix attempt(s) pushed)") : "")}";

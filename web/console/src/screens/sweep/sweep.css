@@ -1,0 +1,78 @@
+/* Sweep: the screen's own few rules. Panels, tables, banners and buttons are the design system's. */
+.sweep-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.sweep-problem {
+  color: var(--danger-text);
+}
+
+.sweep-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.sweep-days .ch-btn {
+  color: var(--text-muted);
+}
+
+.sweep-days .ch-btn[aria-pressed="true"] {
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+.sweep-head > div:first-child {
+  flex: 1 1 24rem;
+}
+
+.sweep-set {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.sweep-set legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+}
+
+.sweep-times {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sweep-time {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  font-family: var(--font-mono);
+}
+
+.sweep-repo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sweep-set {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.li__meta.sweep-counts,
+.sweep-counts {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}

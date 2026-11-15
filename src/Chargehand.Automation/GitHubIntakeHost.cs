@@ -50,6 +50,10 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
     public async Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", "the conversation", ct)).Select(c => Text(c, "body") ?? "")];
 
+    public async Task<IReadOnlyList<string>> CommentBodiesByAsync(string repository, int number, string login, CancellationToken ct) =>
+        [.. (await PagesAsync(repository, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", "the conversation", ct))
+            .Where(c => string.Equals(Login(c, "user"), login, StringComparison.OrdinalIgnoreCase)).Select(c => Text(c, "body") ?? "")];
+
     public async Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls?state=open", "the open pull requests", ct)).Select(p => Parse(() => new ReviewablePull(p.GetProperty("number").GetInt32(), Text(p, "title") ?? "",
             Text(p, "body") ?? "", Login(p, "user"), Text(p.GetProperty("head"), "sha") ?? "", p.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True, Text(p.GetProperty("head"), "ref") ?? "",
@@ -117,6 +121,66 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
             return false;
         }
     }
+
+    public async Task<IReadOnlyList<IntakeIssue>> OpenIssuesAsync(string repository, CancellationToken ct) =>
+        [.. (await PagesAsync(repository, $"{RepoPath(repository)}/issues?state=open", "the open issues", ct)).Select(Issue).Where(i => !i.IsPullRequest)];
+
+    public async Task<IssueState?> IssueStateAsync(string repository, int number, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(await SendAsync(repository, HttpMethod.Get, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}", null, "the issue's state", ct));
+            return Parse(() => Text(doc.RootElement, "state") == "open" ? IssueState.Open : IssueState.Closed);
+        }
+        catch (IntakeException e) when (e.Status is 403 or 404)
+        {
+            return null;
+        }
+    }
+
+    public async Task<LabelSync> SyncLabelAsync(string repository, SweepLabel label, CancellationToken ct)
+    {
+        var path = $"{RepoPath(repository)}/labels/{Uri.EscapeDataString(label.Name)}";
+        string current;
+        try
+        {
+            current = await SendAsync(repository, HttpMethod.Get, path, null, "the label", ct);
+        }
+        catch (IntakeException e) when (e.Status == 404)
+        {
+            await SendAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/labels", new { name = label.Name, color = label.Color, description = label.Description }, "the new label", ct);
+            return LabelSync.Created;
+        }
+        using var doc = JsonDocument.Parse(current);
+        if (string.Equals(Text(doc.RootElement, "color"), label.Color, StringComparison.OrdinalIgnoreCase) && (Text(doc.RootElement, "description") ?? "") == label.Description)
+            return LabelSync.Unchanged;
+        await SendAsync(repository, HttpMethod.Patch, path, new { color = label.Color, description = label.Description }, "the label's update", ct);
+        return LabelSync.Updated;
+    }
+
+    public async Task SetLabelsAsync(string repository, int number, IReadOnlyList<string> add, IReadOnlyList<string> remove, CancellationToken ct)
+    {
+        var issue = $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/labels";
+        if (add.Count > 0)
+            await SendAsync(repository, HttpMethod.Post, issue, new { labels = add }, "the added labels", ct);
+        foreach (var label in remove)
+            try
+            {
+                await SendAsync(repository, HttpMethod.Delete, $"{issue}/{Uri.EscapeDataString(label)}", null, "the removed label", ct);
+            }
+            catch (IntakeException e) when (e.Status == 404)
+            {
+            }
+    }
+
+    public async Task<int> CreateIssueAsync(string repository, string title, string body, CancellationToken ct)
+    {
+        using var doc = JsonDocument.Parse(await SendAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues", new { title, body }, "the new issue", ct));
+        return Parse(() => doc.RootElement.GetProperty("number").GetInt32());
+    }
+
+    public Task EditBodyAsync(string repository, int number, string body, CancellationToken ct) =>
+        SendAsync(repository, HttpMethod.Patch, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}", new { body }, "the issue's body", ct);
 
     /// <summary>One page of 100 of each kind (<c>code-scanning/alerts</c>, <c>dependabot/alerts</c>, <c>state=open</c>). A kind GitHub refuses (403: not enabled or no permission; 404: no analysis) is skipped
     /// with its reason; the App needs Code scanning alerts and Dependabot alerts read.</summary>

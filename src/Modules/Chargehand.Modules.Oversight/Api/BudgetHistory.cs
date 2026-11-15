@@ -4,8 +4,8 @@ namespace Chargehand.Modules.Oversight.Api;
 /// <summary>ADR 0045's Budget decision: a task's budget comes from what tasks of its size class have cost. In this order: the task's own <c>budget_usd</c>; the <c>percentile</c>th percentile of the
 /// spend of the size class's finished tasks in the last <c>window_days</c> days for the repository, when there are at least <c>min_tasks</c> of them; the same over all repositories, when the repository
 /// alone has too few; else the flat budget of the size class. Pure: the learning records and the time are passed in, so each branch is tested with synthetic records.
-/// <para>A finished task is one that completed, or one the governor stopped at its budget (<see cref="Governor.BudgetSpent"/>): the second is cut off at what it spent, and leaving it out would let a
-/// budget that stops its tasks shrink each time. A task that failed, asked a question or was stopped for another reason says little about what the work costs. Only spends priced in full count:
+/// <para>A finished task is one that completed, or one the governor stopped at its budget (<see cref="Governor.BudgetSpent"/>) or checkpointed it on spend (<see cref="Governor.CheckpointSpend"/>): the second is cut off at what it spent, and leaving it out would let a
+/// budget that stops its tasks shrink each time. The result is never below the flat budget. A task that failed, asked a question or was stopped for another reason says little about what the work costs. Only spends priced in full count:
 /// a partial estimate (a model with no price) is a floor, and a task with no estimate has no figure.</para></summary>
 public static class BudgetHistory
 {
@@ -22,8 +22,8 @@ public static class BudgetHistory
         var (scope, used) = here.Count >= history.MinTasks ? ("repository", here) : ("all", finished);
         if (used.Count < history.MinTasks || LearningStats.Percentile(used.Select(r => r.Spend.UsdEstimate!.Value), history.Percentile) is not { } budget || budget <= 0)
             return flat;
-        return new BudgetChoice(Math.Round(budget, 4), new BudgetSource("history", used.Count, history.Percentile, scope));
+        return budget < flat.Usd ? flat : new BudgetChoice(Math.Round(budget, 4), new BudgetSource("history", used.Count, history.Percentile, scope));
     }
 
-    private static bool Finished(LearningRecord record) => record.Completed || record.StopReason == Governor.BudgetSpent;
+    private static bool Finished(LearningRecord record) => record.Completed || record.StopReason is Governor.BudgetSpent or Governor.CheckpointSpend;
 }

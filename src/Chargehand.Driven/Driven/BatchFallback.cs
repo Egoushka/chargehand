@@ -9,9 +9,10 @@ namespace Chargehand.Driven;
 /// holds the day's cap. The batch's own allowance is reserved from the ledger just before its egress container starts (<see cref="Reserve"/>).</summary>
 internal sealed record FallbackSetup(string Credential, string Host, FallbackPrice Price, ApiFallback Gate, string? BaseUrl = null, string? IgnoreCredential = null, decimal? HoldPercent = null)
 {
+    /// <param name="holdOverride">The owner's value of the subscription hold percent, read now; null: the profile's.</param>
     /// <returns>The fallback of a subscription batch whose profile names one and a ledger exists for; null for any other batch, and for a base URL <see cref="FallbackEndpoint"/> refuses
     /// (a line on stderr says why).</returns>
-    public static FallbackSetup? Of(ClaudeCodeSettings claude, string model, ModelPriceLookup price, bool priced, ApiFallback? gate, Func<string, string> secret, string runId)
+    public static FallbackSetup? Of(ClaudeCodeSettings claude, string model, ModelPriceLookup price, bool priced, ApiFallback? gate, Func<string, string> secret, string runId, Func<decimal?>? holdOverride = null)
     {
         if (priced || gate is null || claude.ApiFallbackKeySecret is not { } item)
             return null;
@@ -23,7 +24,7 @@ internal sealed record FallbackSetup(string Credential, string Host, FallbackPri
             return null;
         }
         return new FallbackSetup(secret(item), endpoint.Host, new FallbackPrice(found!.Input, found.Output, found.CacheRead, found.CacheWrite), gate, string.IsNullOrWhiteSpace(claude.ApiFallbackBaseUrl) ? null : endpoint.ToString(),
-            claude.ApiIgnoreKeySecret is { } ignoreItem ? secret(ignoreItem) : null, claude.SubscriptionHoldPercent);
+            claude.ApiIgnoreKeySecret is { } ignoreItem ? secret(ignoreItem) : null, holdOverride?.Invoke() ?? claude.SubscriptionHoldPercent);
     }
 
     /// <summary>Sets the batch's share aside; an allowance of 0 (the fallback is closed, spent or fully reserved) means the batch gets no fallback.</summary>
