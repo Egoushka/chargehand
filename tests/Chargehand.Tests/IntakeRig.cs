@@ -77,6 +77,9 @@ internal sealed class FakeGitHub : IIntakeHost
     /// <summary>Repositories whose open-issue, state, label, issue-create and body-edit calls throw an <see cref="IntakeException"/>.</summary>
     public HashSet<string> SweepFailFor { get; } = [];
 
+    /// <summary>Issues whose label write throws; every other call works.</summary>
+    public HashSet<(string Repository, int Number)> SetLabelsFailFor { get; } = [];
+
     public List<(string Repository, SweepLabel Label)> SyncedLabels { get; } = [];
 
     public Dictionary<string, LabelSync> SyncResults { get; } = [];
@@ -119,6 +122,8 @@ internal sealed class FakeGitHub : IIntakeHost
     public Task SetLabelsAsync(string repository, int number, IReadOnlyList<string> add, IReadOnlyList<string> remove, CancellationToken ct)
     {
         SweepCheck(repository);
+        if (SetLabelsFailFor.Contains((repository, number)))
+            throw new IntakeException("GitHub answered 500 to the label write", 500);
         LabelAdds.AddRange(add.Select(l => (repository, number, l)));
         LabelRemoves.AddRange(remove.Select(l => (repository, number, l)));
         return Task.CompletedTask;

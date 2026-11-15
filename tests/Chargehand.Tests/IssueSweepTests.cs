@@ -99,12 +99,13 @@ public sealed class IssueSweepTests : IDisposable
     [Fact]
     public async Task Unreadable_blocker_does_not_block()
     {
-        _github.OpenIssuesByRepo[App] = [Issue(1, body: "Depends on #7")];
+        _github.OpenIssuesByRepo[App] = [Issue(1, "Ask", body: "Depends on #7")];
+        _sorter.Verdicts["Ask"] = SweepVerdict.NeedsOwner;
 
         await Sweep(repositories: App).RunAsync("manual", CancellationToken.None);
 
         Assert.Equal(1, _sorter.Calls);
-        Assert.Contains((App, 1, SweepLabels.Ready), _github.LabelAdds);
+        Assert.Contains((App, 1, SweepLabels.NeedsYou), _github.LabelAdds);
         Assert.Contains("owner/app#7", Assert.Single(_github.RepoComments).Body);
     }
 
@@ -158,6 +159,79 @@ public sealed class IssueSweepTests : IDisposable
         Assert.Equal(1, items.Single(i => i.Issue == 2).Priority);
         Assert.Equal(0, items.Single(i => i.Issue == 3).Priority);
         Assert.All(items, i => Assert.Equal($"issue-{i.Issue}", i.Area));
+    }
+
+    [Fact]
+    public async Task First_ready_verdict_posts_no_comment()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1)];
+
+        await Sweep(repositories: App).RunAsync("manual", CancellationToken.None);
+
+        Assert.Empty(_github.RepoComments);
+    }
+
+    [Fact]
+    public async Task First_needs_owner_verdict_posts_the_reason()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1, "Ask")];
+        _sorter.Verdicts["Ask"] = SweepVerdict.NeedsOwner;
+
+        await Sweep(repositories: App).RunAsync("manual", CancellationToken.None);
+
+        Assert.Contains("Looks right.", Assert.Single(_github.RepoComments).Body);
+    }
+
+    [Fact]
+    public async Task Matching_label_already_present_posts_no_comment()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1, "Ask", labels: SweepLabels.NeedsYou)];
+        _sorter.Verdicts["Ask"] = SweepVerdict.NeedsOwner;
+
+        await Sweep(repositories: App).RunAsync("manual", CancellationToken.None);
+
+        Assert.Empty(_github.RepoComments);
+    }
+
+    [Fact]
+    public async Task A_verdict_that_changes_is_commented()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1, "Ask")];
+        _sorter.Verdicts["Ask"] = SweepVerdict.NeedsOwner;
+        var sweep = Sweep(repositories: App);
+        await sweep.RunAsync("manual", CancellationToken.None);
+        _github.OpenIssuesByRepo[App] = [Issue(1, "Ask", "More detail")];
+        _sorter.Verdicts["Ask"] = SweepVerdict.Ready;
+
+        await sweep.RunAsync("manual", CancellationToken.None);
+
+        Assert.Equal(2, _github.RepoComments.Count);
+    }
+
+    [Fact]
+    public async Task A_failure_on_one_issue_does_not_stop_the_rest()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1), Issue(2), Issue(3), Issue(4), Issue(5)];
+        _github.SetLabelsFailFor.Add((App, 3));
+
+        var report = await Sweep(repositories: App).RunAsync("manual", CancellationToken.None);
+
+        var row = Assert.Single(report.Repositories);
+        Assert.NotNull(row.Problem);
+        Assert.DoesNotContain("\n", row.Problem);
+        Assert.Equal([1, 2, 4, 5], _github.LabelAdds.Where(a => a.Label == SweepLabels.Ready).Select(a => a.Number).Order());
+        Assert.Equal(4, (await _pool.ItemsAsync(null, CancellationToken.None)).Count);
+        Assert.Equal(1, _events.Count("chargehand.sweep.problem"));
+    }
+
+    [Fact]
+    public async Task Issues_over_the_sort_cap_are_counted_as_deferred()
+    {
+        _github.OpenIssuesByRepo[App] = [.. Enumerable.Range(1, 5).Select(n => Issue(n))];
+
+        var report = await Sweep(2, App).RunAsync("manual", CancellationToken.None);
+
+        Assert.Equal(3, Assert.Single(report.Repositories).Deferred);
     }
 
     private sealed class NoStarter : IPoolStarter

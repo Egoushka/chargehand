@@ -24,6 +24,10 @@ public sealed partial class IssueSweep
 
         public int Enqueued { get; set; }
 
+        public int Deferred { get; set; }
+
+        public string? Problem { get; set; }
+
         public void Count(SweepVerdict verdict)
         {
             switch (verdict)
@@ -35,7 +39,7 @@ public sealed partial class IssueSweep
             }
         }
 
-        public SweepRepoRow Row(string repository, string? problem) => new(repository, _ready, _needsYou, _blocked, _epic, Skipped, Enqueued, problem);
+        public SweepRepoRow Row(string repository, string? problem) => new(repository, _ready, _needsYou, _blocked, _epic, Skipped, Enqueued, problem, Deferred);
     }
 
     /// <summary>What one repository's pass reads once: its open chargehand pull requests and its rules file.</summary>
@@ -118,6 +122,13 @@ public sealed partial class IssueSweep
         return (add, remove);
     }
 
+    /// <summary>A changed verdict, or a first one the owner needs the reason for; a Ready issue's result is its pull request, and a label already there means an earlier sweep spoke.</summary>
+    private static bool ShouldComment(IntakeIssue issue, SweepVerdict verdict, SweepVerdict? last)
+    {
+        if (Has(issue, VerdictLabel(verdict))) return false;
+        return last is null ? verdict != SweepVerdict.Ready : last != verdict;
+    }
+
     private static string VerdictLabel(SweepVerdict verdict) => verdict switch
     {
         SweepVerdict.Ready => SweepLabels.Ready,
@@ -160,6 +171,7 @@ public sealed partial class IssueSweep
             w.WriteNumber("epic", r.Epic);
             w.WriteNumber("skipped", r.Skipped);
             w.WriteNumber("enqueued", r.Enqueued);
+            w.WriteNumber("deferred", r.Deferred);
             if (r.Problem is not null) w.WriteString("problem", r.Problem);
             w.WriteEndObject();
         }

@@ -44,18 +44,22 @@ public sealed partial class IssueSweep(
         try
         {
             await SweepRepositoryAsync(repository, checkout, budget, tally, ct);
-            return tally.Row(repository, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            var problem = ProblemLine(ex);
+            tally.Problem ??= ProblemLine(ex);
+        }
+
+        if (tally.Problem is { } problem)
+        {
             await EmitAsync(sweepId, "chargehand.sweep.problem", $"problem-{repository.Replace('/', '-')}", w =>
             {
                 w.WriteString("repository", repository);
                 w.WriteString("text", problem);
             }, ct);
-            return tally.Row(repository, problem);
         }
+
+        return tally.Row(repository, tally.Problem);
     }
 
     private async Task SweepRepositoryAsync(string repository, AutomationRepository checkout, Budget budget, Tally tally, CancellationToken ct)
@@ -68,7 +72,14 @@ public sealed partial class IssueSweep(
         foreach (var issue in issues.Where(i => !i.IsPullRequest).OrderBy(i => i.UpdatedAt))
         {
             ct.ThrowIfCancellationRequested();
-            await SweepIssueAsync(context, issue, budget, tally, ct);
+            try
+            {
+                await SweepIssueAsync(context, issue, budget, tally, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                tally.Problem ??= ProblemLine(ex);
+            }
         }
     }
 
@@ -100,7 +111,10 @@ public sealed partial class IssueSweep(
         else if (budget.TryTake())
             result = await sorter.SortAsync(issue, repository, context.ClaudeMd(), ct);
         else
+        {
+            tally.Deferred++;
             return;
+        }
 
         await PublishAsync(repository, issue, key, cacheHash, result, unreadable, ct);
         tally.Count(result.Verdict);
@@ -115,7 +129,7 @@ public sealed partial class IssueSweep(
         var (add, remove) = LabelChanges(issue, result);
         if (add.Count > 0 || remove.Count > 0)
             await host.SetLabelsAsync(repository, issue.Number, add, remove, ct);
-        if (await state.LastVerdictAsync(key) != result.Verdict)
+        if (ShouldComment(issue, result.Verdict, await state.LastVerdictAsync(key)))
             await host.CommentAsync(repository, issue.Number, CommentText(result, unreadable), ct);
         await state.PutAsync(key, cacheHash, result);
     }
