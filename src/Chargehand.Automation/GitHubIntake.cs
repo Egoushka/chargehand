@@ -18,7 +18,8 @@ namespace Chargehand.Automation;
 /// cloned into <paramref name="clones"/>; one switched off in <paramref name="sources"/> is not read.</summary>
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
     IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null,
-    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<string, CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null)
+    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<string, CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null,
+    Func<string, int, CancellationToken, Task<bool>>? pooled = null)
 {
     public const string Preset = "driven";
 
@@ -285,7 +286,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 }, _ => { }));
                 continue;
             }
-            candidates.Add(NewIssueCandidate(key, issue.Labels, ct2 => StartAsync(key, name, repository, issue, null, null, starter, ct2),
+            candidates.Add(NewIssueCandidate(key, issue.Labels, async ct2 => await PooledAsync(key, name, issue.Number, ct2) ?? await StartAsync(key, name, repository, issue, null, null, starter, ct2),
                 outcome => { if (outcome != Outcome.Deferred) SettleLabel(seen, issue.UpdatedAt); }));
         }
     }
@@ -363,7 +364,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 Log(key, "ignored", "review_rounds_off", comment.Author);
             return null;
         }
-        return NewIssueCandidate(key, issue.Labels, ct2 => StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct2), _ => { });
+        return NewIssueCandidate(key, issue.Labels, async ct2 => await PooledAsync(key, name, issue.Number, ct2) ?? await StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct2), _ => { });
+    }
+
+    /// <summary>Settled when the sweep already queued the issue in the task pool: a new task here would do the same work twice. Null: no open pool item, the start goes on.</summary>
+    private async Task<Outcome?> PooledAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (pooled is null || !await pooled(name, issue, ct))
+            return null;
+        state.Handled.Add(key);
+        _info($"intake: {key}: skipped: {name}#{issue.ToString(CultureInfo.InvariantCulture)} has an open item in the task pool");
+        return Outcome.Settled;
     }
 
     /// <param name="goal">The goal of a lost run that starts again; null: made from the issue.</param>

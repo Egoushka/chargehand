@@ -45,6 +45,36 @@ public class GitHubIntakeTests
     }
 
     [Fact]
+    public async Task Label_on_an_issue_with_an_open_pool_item_starts_nothing()
+    {
+        using var rig = new IntakeRig();
+        var asked = new List<(string, int)>();
+        rig.Pooled = (repository, issue, _) =>
+        {
+            asked.Add((repository, issue));
+            return Task.FromResult(true);
+        };
+        rig.Labeled(7, "alice", 41);
+        await rig.Poll();
+        await rig.Poll();
+
+        Assert.Empty(rig.Starter.Started);
+        Assert.Equal([(IntakeRig.Repo, 7)], asked);
+        Assert.Contains(rig.Infos, i => i.Contains("pool", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Label_without_a_pool_item_still_starts()
+    {
+        using var rig = new IntakeRig();
+        rig.Pooled = (_, _, _) => Task.FromResult(false);
+        rig.Labeled(7, "alice", 41);
+        await rig.Poll();
+
+        Assert.Single(rig.Starter.Started);
+    }
+
+    [Fact]
     public async Task Without_a_size_label_the_profile_budget_class_applies_and_two_size_labels_are_not_a_size()
     {
         using var rig = new IntakeRig(Settings(concurrent: 5));

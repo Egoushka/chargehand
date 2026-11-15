@@ -579,10 +579,14 @@ Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? dr
     var state = Chargehand.Automation.IntakeState.Load(Path.Combine(directory, "github.json"));
     // The App's repositories (discover) and those whose checkout cannot be written are cloned under worker_root and fetched with the App's token, on this host only.
     var clones = new Chargehand.Automation.ManagedClones(profile.ClonesRoot, tokens.GetAsync);
+    // An issue the sweep queued in the task pool is not started again by its label; the pool's file is the one the server opens (WAL), and none without http.pool.
+    var poolFile = profile.Http?.Pool is { } poolSettings ? poolSettings.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "pool.db") : null;
+    var poolStore = poolFile is null ? null : Chargehand.Modules.Pool.Api.SqlitePoolStore.Open(poolFile);
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones,
         subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null,
-        poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct));
+        poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct),
+        pooled: poolStore is null ? null : poolStore.HasOpenItemAsync);
 }
 
 // The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.

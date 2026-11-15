@@ -450,7 +450,10 @@ internal sealed class IntakeRig : IDisposable
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add,
-        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now));
+        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now), pooled: (repository, issue, ct) => Pooled?.Invoke(repository, issue, ct) ?? Task.FromResult(false));
+
+    /// <summary>Whether the task pool holds an open item for an issue; null: none does.</summary>
+    public Func<string, int, CancellationToken, Task<bool>>? Pooled { get; set; }
 
     /// <summary>The subscription window the quota harvester reads (issue #792); null: none is known.</summary>
     public Func<DateTimeOffset, QuotaWindow?>? QuotaWindow { get; set; }
