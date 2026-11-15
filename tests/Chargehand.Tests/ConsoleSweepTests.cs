@@ -28,18 +28,35 @@ public sealed class ConsoleSweepTests
         }
     }
 
-    private static Task<TestServer> Start(IntakeRig rig, GateSorter sorter, SweepSettings? sweep = null, decimal? hold = null) =>
+    private static Task<TestServer> Start(IntakeRig rig, GateSorter sorter, SweepSettings? sweep = null, decimal? hold = null, Action<string>? beforeStart = null) =>
         TestServer.StartAsync(new ScriptedRuntime(Runs.DraftReply), accounts: [Alice], intake: rig.Intake,
             sweep: new SweepParts(rig.GitHub, rig.Heads, rig.State, rig.Settings.Repositories!, new HashSet<string> { IntakeRig.Author }, sorter, sweep ?? new SweepSettings(), Path.Combine(Path.GetTempPath(), "sweep-" + Guid.NewGuid().ToString("N"))),
-            tweak: (root, settings) => settings with
+            tweak: (root, settings) =>
             {
-                Pool = new TaskPoolSettings(Database: Path.Combine(root, "pool.db")),
-                Profile = (settings.Profile ?? Runs.Profile(root)) with
+                beforeStart?.Invoke(Path.Combine(root, "pool.db"));
+                return settings with
                 {
-                    Automation = new AutomationSettings(rig.Settings, Sweep: sweep),
-                    ClaudeCode = hold is null ? null : new ClaudeCodeSettings("1", OauthTokenSecret: "t", ApiFallbackKeySecret: "api", ApiFallbackDailyUsd: 6, SubscriptionHoldPercent: hold),
-                },
+                    Pool = new TaskPoolSettings(Database: Path.Combine(root, "pool.db")),
+                    Profile = (settings.Profile ?? Runs.Profile(root)) with
+                    {
+                        Automation = new AutomationSettings(rig.Settings, Sweep: sweep),
+                        ClaudeCode = hold is null ? null : new ClaudeCodeSettings("1", OauthTokenSecret: "t", ApiFallbackKeySecret: "api", ApiFallbackDailyUsd: 6, SubscriptionHoldPercent: hold),
+                    },
+                };
             });
+
+    /// <summary>The pool service releases every claim of a dead worker once, on a background task after the server starts. A claim seeded before start, seen back in the queue, proves that release ran.</summary>
+    private static async Task UntilStartupReleaseRan(string pool)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            using var store = SqlitePoolStore.Open(pool);
+            if ((await store.ItemsAsync(null, CancellationToken.None)).Single(x => x.Area == "sentinel").Status != PoolStatus.Claimed)
+                return;
+            await Task.Delay(50); // agent-checks: allow sleep-in-test -- poll interval of a wait on the pool service's one-time startup release, bounded at 5 s
+        }
+        throw new TimeoutException("the pool service never released the claims of a stopped process");
+    }
 
     private static async Task<JsonElement> Get(HttpClient http, string path) => await http.GetFromJsonAsync<JsonElement>(path);
 
@@ -83,7 +100,14 @@ public sealed class ConsoleSweepTests
         rig.GitHub.OpenIssuesByRepo[IntakeRig.Repo] = [new IntakeIssue(1, "Plain", "", IntakeRig.Author, false, [], DateTimeOffset.UnixEpoch)];
         var sorter = new GateSorter();
         sorter.Gate.SetResult();
-        await using var server = await Start(rig, sorter);
+        await using var server = await Start(rig, sorter, beforeStart: pool =>
+        {
+            using var seed = SqlitePoolStore.Open(pool);
+            seed.EnqueueAsync(new EnqueueRequest("other/repo", "sentinel", "Sentinel", "b"), 100, DateTimeOffset.UtcNow, CancellationToken.None).GetAwaiter().GetResult();
+            seed.StartWorkerAsync(new PoolScope("other/repo", "sentinel"), "w0", 90_000, DateTimeOffset.UtcNow, CancellationToken.None).GetAwaiter().GetResult();
+        });
+        // The claim below would be released as a dead worker's if it landed before that one-time release.
+        await UntilStartupReleaseRan(Path.Combine(server.WorkerRoot, "pool.db"));
         using (var store = SqlitePoolStore.Open(Path.Combine(server.WorkerRoot, "pool.db")))
         {
             await store.EnqueueAsync(new EnqueueRequest(IntakeRig.Repo, "docs", "Other", "b", Issue: 9), 100, DateTimeOffset.UtcNow, CancellationToken.None);
