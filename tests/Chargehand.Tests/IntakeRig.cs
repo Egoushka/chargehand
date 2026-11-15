@@ -365,13 +365,16 @@ internal sealed class IntakeRig : IDisposable
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add,
-        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now));
+        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now),
+        subgateHoldUntil: ct => SubgateHold?.Invoke(ct) ?? Task.FromResult<DateTimeOffset?>(null));
 
     /// <summary>The subscription window the quota harvester reads (issue #792); null: none is known.</summary>
     public Func<DateTimeOffset, QuotaWindow?>? QuotaWindow { get; set; }
 
     /// <summary>When the rate-limit pause a running task reported ends; null: none.</summary>
     public DateTimeOffset? RateLimitUntil { get; set; }
+
+    public Func<CancellationToken, Task<DateTimeOffset?>>? SubgateHold { get; set; }
 
     private string SourcesPath => Path.Combine(_dir.Path, "intake", "sources.json");
 

@@ -18,7 +18,8 @@ namespace Chargehand.Automation;
 /// cloned into <paramref name="clones"/>; one switched off in <paramref name="sources"/> is not read.</summary>
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
     IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null,
-    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<string, CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null)
+    Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<string, CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null,
+    Func<CancellationToken, Task<DateTimeOffset?>>? subgateHoldUntil = null)
 {
     public const string Preset = "driven";
 
@@ -401,6 +402,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
             return broke;
         if (await SlotAsync(key, name, issue.Number, ct) is { } held)
             return held;
+        if (await SubgateAsync(key, name, issue.Number, ct) is { } shared)
+            return shared;
         RepositoryRef source;
         try
         {
@@ -529,6 +532,18 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _info($"intake: {key}: waiting: pools: {why}");
         Wait(key, name, issue, "pools", why);
         await NotifyOnceAsync($"pools:{key}", name, issue, $"chargehand is waiting: {why}. This starts once a pool has room.", ct);
+        return Outcome.Deferred;
+    }
+
+    /// <summary>Waits while subgate holds the subscription's share for interactive sessions: the start is queued and asked again on a later poll. Null when it may start, subgate is off or it could not be reached.</summary>
+    private async Task<Outcome?> SubgateAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (subgateHoldUntil is null || await subgateHoldUntil(ct) is not { } until)
+            return null;
+        var why = $"subgate holds the subscription's share until {until.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}";
+        _info($"intake: {key}: waiting: subscription share: {why}");
+        Wait(key, name, issue, "subscription share", why);
+        await NotifyOnceAsync($"subgate:{key}", name, issue, $"chargehand is waiting: {why}. This starts after that.", ct);
         return Outcome.Deferred;
     }
 

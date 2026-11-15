@@ -582,7 +582,21 @@ Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? dr
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones,
         subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null,
-        poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct));
+        poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct),
+        subgateHoldUntil: github.Subgate is { } subgate ? SubgateHold(subgate) : null);
+}
+
+// subgate's admission (off unless automation.github.subgate is set); a bad URL turns it off rather than stopping the server.
+Func<CancellationToken, Task<DateTimeOffset?>>? SubgateHold(Chargehand.Modules.Intake.Api.AutomationSubgate subgate)
+{
+    if (!Uri.TryCreate(subgate.Url.EndsWith('/') ? subgate.Url : subgate.Url + "/", UriKind.Absolute, out var root))
+    {
+        Console.Error.WriteLine("chargehand: automation.github.subgate.url is not a URL; subgate is off");
+        return null;
+    }
+    var http = new HttpClient { BaseAddress = root, Timeout = TimeSpan.FromSeconds(Math.Max(1, subgate.TimeoutSeconds)) };
+    http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(subgate.TokenSecret));
+    return new Chargehand.Automation.SubgateAdmission(http, subgate.Consumer, warn: Console.Error.WriteLine).HoldUntilAsync;
 }
 
 // The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.
