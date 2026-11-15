@@ -150,7 +150,7 @@ public class IntegratorTests
     }
 
     [Theory]
-    [InlineData("yehor")]
+    [InlineData("octocat")]
     [InlineData(null)]
     public async Task An_auto_merge_a_person_armed_is_left_on(string? by)
     {

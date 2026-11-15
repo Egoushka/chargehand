@@ -135,9 +135,9 @@ public class ReviewMergeTests
 
     [Theory]
     [InlineData("merge", "chargehand", true)]
-    [InlineData("merge", "yehor", false)]
+    [InlineData("merge", "octocat", false)]
     [InlineData("ask", "chargehand", true)]
-    [InlineData("ask", "yehor", false)]
+    [InlineData("ask", "octocat", false)]
     public async Task Only_an_auto_merge_the_App_armed_is_turned_off_on_the_poll(string mode, string by, bool off)
     {
         var host = new FakeIntegrationHost { Current = new PrSnapshot("PR_node", 9, Head, "main", false, false, false, "CLEAN", true, Green, [], by) };
