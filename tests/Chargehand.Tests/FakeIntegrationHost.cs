@@ -120,9 +120,13 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         return Task.CompletedTask;
     }
 
+    public Exception? CommentFails { get; set; }
+
     public Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct)
     {
         Calls.Add("comment");
+        if (CommentFails is not null)
+            throw CommentFails;
         Comments.Add(body);
         return Task.CompletedTask;
     }

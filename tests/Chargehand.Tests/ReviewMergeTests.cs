@@ -150,6 +150,73 @@ public class ReviewMergeTests
     }
 
     [Fact]
+    public async Task A_stranger_branch_or_a_fork_is_never_merged_even_with_a_clean_App_comment()
+    {
+        var (rig, host) = Make();
+        using (rig)
+        {
+            await rig.Poll();
+            foreach (var (n, pull) in new[] { (9, new ReviewablePull(9, "t", "", "chargehand[bot]", Head, false, "feature/x")), (10, new ReviewablePull(10, "t", "", "chargehand[bot]", Head, false, Branch, SameRepository: false)) })
+            {
+                rig.GitHub.OpenPulls.Add(pull);
+                rig.GitHub.Comments.Add(new IntakeComment(900 + n, n, "chargehand[bot]", $"{PullReviews.MarkerFor(Head)}\n{PullReviews.CleanMarkerFor(Head)}\nclean", rig.Now));
+            }
+            await rig.Poll();
+            await rig.Poll();
+
+            Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal) || c.StartsWith("auto-merge", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task A_clean_marker_quoted_in_the_middle_of_an_App_comment_is_not_trusted()
+    {
+        var (rig, host) = Make();
+        using (rig)
+        {
+            await rig.Poll();
+            rig.OpenPull(9, Head, author: "chargehand[bot]", branch: Branch);
+            rig.GitHub.Comments.Add(new IntakeComment(900, 9, "chargehand[bot]", $"chargehand finished review round 1:\n\n{PullReviews.CleanMarkerFor(Head)}", rig.Now));
+            await rig.Poll();
+            await rig.Poll();
+
+            Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task A_test_integrity_marker_buried_under_more_than_fifty_comments_still_refuses()
+    {
+        var (rig, host) = Make();
+        using (rig)
+        {
+            await rig.Poll();
+            rig.OpenPull(9, Head, author: "chargehand[bot]", branch: Branch);
+            await rig.Poll();
+            rig.GitHub.Comments.Add(new IntakeComment(500, 9, "chargehand[bot]", "<!-- chargehand-integration test-integrity -->\nA person decides.", rig.Now));
+            for (var i = 0; i < 60; i++)
+                rig.GitHub.Comments.Add(new IntakeComment(600 + i, 9, "someone", "later", rig.Now));
+            rig.Log.Finish($"run-{rig.Starter.Started.Count}", ResultStatus.Completed, "Reviewed.", [], []);
+            await rig.Poll();
+
+            Assert.False(Merged(host, Head));
+        }
+    }
+
+    [Fact]
+    public async Task A_repository_that_asks_still_has_an_armed_auto_merge_turned_off()
+    {
+        var host = new FakeIntegrationHost { Current = new PrSnapshot("PR_node", 9, Head, "main", false, false, false, "CLEAN", true, Green, []) };
+        var policy = new IntegratorPolicy(new DrivenIntegrator(1, 2, "k", new Dictionary<string, string> { [IntakeRig.Repo] = "ask" }, null));
+        using var rig = new IntakeRig(Settings(), policy, approver: new Integrator(policy, host, delay: (_, _) => Task.CompletedTask));
+        await rig.Poll();
+        rig.OpenPull(9, Head, author: "chargehand[bot]", branch: Branch);
+        await rig.Poll();
+
+        Assert.Contains("disable-auto-merge", host.Calls);
+    }
+
+    [Fact]
     public void The_merge_chain_names_every_gap()
     {
         var plain = new AutomationGitHub(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, ["alice"]);

@@ -33,7 +33,7 @@ internal sealed class ReviewBacklog(AutomationGitHub settings, IIntakeHost host,
             if ((await host.ReviewersAsync(repository, pull.Number, ct)).Any(login => settings.AllowedAuthors?.Contains(login, StringComparer.OrdinalIgnoreCase) == true))
                 continue;
             if (settings.AppLogin is { Length: > 0 } app && pull.HeadSha.Length >= 7
-                && (await host.CommentBodiesByAsync(repository, pull.Number, app, ct)).Any(b => b.Contains(PullReviews.CleanMarkerFor(pull.HeadSha), StringComparison.Ordinal)))
+                && (await host.CommentBodiesByAsync(repository, pull.Number, app, ct)).Any(b => PullReviews.IsCleanComment(b, pull.HeadSha)))
                 continue;
             count++;
         }

@@ -23,37 +23,41 @@ public sealed partial class GitHubIntake
         }
     }
 
-    /// <summary>Every poll, for each open chargehand pull request of a repository that merges: the integrator merges it, pinned to its head, when the App's own clean review covers that head and the checks are green. A merge
-    /// happens nowhere else, so a push after the review (a CI fix, a round) is merged only once its own review is clean. The marker counts only in a comment the App wrote.</summary>
+    private readonly HashSet<string> _approvalsTold = [];
+
+    /// <summary>Every poll, for each open chargehand pull request of a repository that merges or asks: the integrator merges it, pinned to its head, when the App's own clean review covers that head and the checks are green;
+    /// in a repository that does not merge it only turns off an auto-merge armed earlier. A merge happens nowhere else, so a push after the review (a CI fix, a round) is merged only once its own review is clean. The marker
+    /// counts only at the start of a comment the App wrote. One pull request that cannot be read does not stop the others.</summary>
     private async Task ApproveReviewedAsync(string name, CancellationToken ct)
     {
-        if (approver is null || integrator?.Resolve(RemoteOf(name)) != IntegrationMode.Merge)
+        if (approver is null || integrator?.Resolve(RemoteOf(name)) is not (IntegrationMode.Merge or IntegrationMode.Ask))
             return;
+        IReadOnlyList<ReviewablePull> pulls;
         try
         {
-            foreach (var pull in await host.OpenPullsAsync(name, ct))
-            {
-                if (!IsChargehandBranch(pull.HeadBranch, pull.SameRepository))
-                    continue;
-                var reviewed = await CleanReviewOfAsync(name, pull, ct);
-                var result = await approver.ApproveAsync(new IntegrationTarget(RemoteOf(name), pull.Number, pull.HeadBranch, false, ""), reviewed, ct);
-                if (result.Action is IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.Asked)
-                    _info($"intake: {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}: {result.Detail}");
-            }
+            pulls = await host.OpenPullsAsync(name, ct);
         }
-        catch (Exception e) when (e is IntakeException or IntegrationException)
+        catch (IntakeException e)
         {
             _warn($"intake: {name}: approval not applied: {e.Message}");
+            return;
         }
-    }
-
-    /// <summary>The head if the App's own comment holds the clean marker for it, else empty.</summary>
-    private async Task<string> CleanReviewOfAsync(string name, ReviewablePull pull, CancellationToken ct)
-    {
-        if (settings.AppLogin is not { Length: > 0 } app || pull.HeadSha.Length < 7)
-            return "";
-        var marker = PullReviews.CleanMarkerFor(pull.HeadSha);
-        return (await host.CommentBodiesByAsync(name, pull.Number, app, ct)).Any(b => b.Contains(marker, StringComparison.Ordinal)) ? pull.HeadSha : "";
+        foreach (var pull in pulls.Where(p => IsChargehandBranch(p.HeadBranch, p.SameRepository)))
+        {
+            try
+            {
+                var app = settings.AppLogin is { Length: > 0 } login ? await host.CommentBodiesByAsync(name, pull.Number, login, ct) : [];
+                var reviewed = pull.HeadSha.Length >= 7 && app.Any(b => PullReviews.IsCleanComment(b, pull.HeadSha)) ? pull.HeadSha : "";
+                var result = await approver.ApproveAsync(new IntegrationTarget(RemoteOf(name), pull.Number, pull.HeadBranch, false, ""), reviewed, ct, appComments: app);
+                if (result.Action is IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.Asked && _approvalsTold.Add($"{name}#{pull.Number}@{pull.HeadSha}:{result.Action}"))
+                    _info($"intake: {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}: {result.Detail}");
+            }
+            catch (Exception e) when (e is IntakeException or IntegrationException)
+            {
+                if (_approvalsTold.Add($"{name}#{pull.Number}@{pull.HeadSha}:error"))
+                    _warn($"intake: {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}: approval not applied: {e.Message}");
+            }
+        }
     }
 
     /// <summary>One line per reason a repository that is set to <c>merge</c> will never merge: a merge waits for chargehand's own clean review, and that needs the whole chain. Empty when it is complete.</summary>

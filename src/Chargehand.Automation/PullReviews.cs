@@ -26,6 +26,9 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     /// <summary>In the review comment of a completed run with no blocking finding: what lets the integrator merge that head. Read only from the App's own comments.</summary>
     public static string CleanMarkerFor(string sha) => $"<!-- chargehand-review-clean {sha} -->";
 
+    /// <summary>Whether an App comment is the review comment that cleared <paramref name="sha"/>: it starts with the review's own header, so model text quoted deeper in another comment never counts.</summary>
+    public static bool IsCleanComment(string body, string sha) => body.StartsWith($"{MarkerFor(sha)}\n{CleanMarkerFor(sha)}", StringComparison.Ordinal);
+
     /// <summary>The name a review round shows for chargehand's own review: no <c>@</c>, which would ping an account and equal the mention.</summary>
     public const string ReviewAuthor = "chargehand's own review";
 

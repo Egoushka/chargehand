@@ -33,10 +33,11 @@ public sealed partial class Integrator
     /// <summary>Run on every poll for a chargehand pull request. Auto-merge, if one was armed earlier, is turned off: a merge happens only here. When <paramref name="reviewedSha"/> (the head chargehand's own clean review
     /// covers; empty when none does) is still the head, the pull request is merged now, pinned to it, in a repository whose mode is merge, when it is ready, every required check is green, it changes no migration and
     /// carries none of the markers that ask a person instead. Checks still running return <see cref="IntegrationAction.AwaitingReview"/>; a moved head merges nothing, the next review of the new head decides.</summary>
-    public async Task<IntegrationResult> ApproveAsync(IntegrationTarget target, string reviewedSha, CancellationToken ct, Action<string>? report = null)
+    public async Task<IntegrationResult> ApproveAsync(IntegrationTarget target, string reviewedSha, CancellationToken ct, Action<string>? report = null, IReadOnlyList<string>? appComments = null)
     {
         report ??= _ => { };
-        if (target.LocalOnly || target.Partial || ModeFor(target) != IntegrationMode.Merge)
+        var mode = ModeFor(target);
+        if (target.LocalOnly || target.Partial || mode == IntegrationMode.Off)
             return new(IntegrationAction.None, "this repository does not merge by itself");
         try
         {
@@ -48,6 +49,9 @@ public sealed partial class Integrator
                 await host.DisableAutoMergeAsync(target.Repository, pr.NodeId, ct);
                 report("auto-merge turned off: chargehand merges only the head its own review cleared");
             }
+            if (mode != IntegrationMode.Merge)
+                return new(IntegrationAction.None, "this repository does not merge by itself");
+            pr = pr with { Comments = [.. pr.Comments, .. appComments ?? []] };
             if (string.IsNullOrEmpty(reviewedSha) || !string.Equals(pr.HeadSha, reviewedSha, StringComparison.OrdinalIgnoreCase))
                 return new(IntegrationAction.None, "no clean review of the current head; not merged");
             return await MergeReviewedAsync(target, pr, report, ct);
@@ -66,7 +70,7 @@ public sealed partial class Integrator
         if (required.Any(c => c.Outcome is CheckOutcome.Failed or CheckOutcome.Other))
             return new(IntegrationAction.None, "a required check has not passed; not merged");
         if (required.Count == 0 || required.Any(c => c.Outcome == CheckOutcome.Pending))
-            return new(IntegrationAction.AwaitingReview, "the required checks are still running; merged once they are green");
+            return new(IntegrationAction.AwaitingReview, required.Count == 0 ? "no required checks reported; merged once they are green" : "the required checks are still running; merged once they are green");
         if (MigrationPaths.Find(await host.ChangedPathsAsync(target.Repository, target.Number, ct)) is { } migration)
         {
             var told = pr.Comments.Any(c => c.Contains(MigrationMarker, StringComparison.Ordinal));

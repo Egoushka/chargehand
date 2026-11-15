@@ -27,7 +27,7 @@ public class IntegratorChecksGateTests
         Assert.Equal(IntegrationAction.Asked, result.Action);
         Assert.Contains(why, result.Detail);
         Assert.Contains("treated as ask", result.Detail);
-        Assert.Equal(["get", "ready", "get", "comment"], host.Calls);
+        Assert.Equal(["get", "comment", "ready", "get"], host.Calls);
         Assert.Contains("no-required-checks", Assert.Single(host.Comments));
     }
 

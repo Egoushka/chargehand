@@ -90,13 +90,15 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
                     return stopped;
                 pr = moved!;
             }
+            // The marker that keeps a flagged pull request from merging goes up before it is marked ready: a comment that fails leaves a draft.
+            var asked = mode == IntegrationMode.Ask ? await AskNoticeAsync(target, pr, gate, migration, ct) : null;
             if (pr.IsDraft)
             {
                 await host.MarkReadyAsync(target.Repository, pr.NodeId, ct);
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, migration, report, ct) : await AwaitReviewAsync(target, pr, report, ct);
+            return asked is not null ? Say(report, IntegrationAction.Asked, $"marked ready; {asked}") : await AwaitReviewAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
@@ -133,13 +135,14 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
         return (null, moved);
     }
 
-    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, string? migration, Action<string> report, CancellationToken ct)
+    /// <summary>Post the comment that says why a pull request is not merged; the text after "marked ready; " in the result.</summary>
+    private async Task<string> AskNoticeAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, string? migration, CancellationToken ct)
     {
         if (migration is not null)
         {
             await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand marked this pull request ready but does not merge it: it adds a database migration ({migration}). The repository owner merges it.", ct);
             await NeedsYouAsync(target, ct);
-            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because it adds a database migration ({migration})");
+            return $"not merged because it adds a database migration ({migration})";
         }
         if (gate != ChecksGate.Required)
         {
@@ -148,15 +151,15 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
                 : $"chargehand could not read the rules of its base branch {pr.BaseBranch}, so it cannot tell whether {host.Name} would wait for CI";
             await CommentOnceAsync(target, pr, NoChecksMarker, $"chargehand marked this pull request ready but does not merge it: {reason}. Add a rule that requires your CI checks on {pr.BaseBranch} and chargehand will merge the next one; a person decides about this one.", ct);
             Console.Error.WriteLine($"chargehand: warning: {target.Repository.Owner}/{target.Repository.Name} is set to merge, but {reason}; treated as ask");
-            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because {reason} (treated as ask)");
+            return $"not merged because {reason} (treated as ask)";
         }
         if (target.TestIntegrity is { } why)
         {
             await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
-            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because of test integrity ({why})");
+            return $"not merged because of test integrity ({why})";
         }
         await CommentOnceAsync(target, pr, AskMarker, "chargehand marked this pull request ready. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
-        return Say(report, IntegrationAction.Asked, "marked ready; the repository's policy is ask, so it is left for a person to merge");
+        return "the repository's policy is ask, so it is left for a person to merge";
     }
 
     /// <summary>Watch the required checks of a pull request that <see cref="IntegrateAsync"/> handled. When some fail and every required check has finished, <paramref name="fix"/> runs a session on the branch,

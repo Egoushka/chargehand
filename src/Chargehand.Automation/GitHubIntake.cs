@@ -932,7 +932,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     private static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
-    private static string Cut(string text, int max) => text.Length <= max ? text : text[..max].TrimEnd() + " [cut]";
+    private static string Cut(string text, int max) => (text.Length <= max ? text : text[..max].TrimEnd() + " [cut]").Replace("<", "&lt;", StringComparison.Ordinal);
 
     /// <summary>A note that is written once per key. The key is kept only after the comment is up, so a comment GitHub refused is tried again.</summary>
     private async Task NotifyOnceAsync(string key, string repository, int issue, string text, CancellationToken ct)

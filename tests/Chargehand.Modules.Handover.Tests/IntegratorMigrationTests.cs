@@ -30,7 +30,7 @@ public class IntegratorMigrationTests
 
         Assert.Equal(IntegrationAction.Asked, result.Action);
         Assert.Contains("db/migrations/0042_add_column.sql", result.Detail);
-        Assert.Equal(["get", "ready", "get", "comment"], host.Calls);
+        Assert.Equal(["get", "comment", "ready", "get"], host.Calls);
         Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal) || c.StartsWith("auto-merge", StringComparison.Ordinal));
         Assert.False(host.Current.Merged);
         Assert.False(host.Current.AutoMerge);

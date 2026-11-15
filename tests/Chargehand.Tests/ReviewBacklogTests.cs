@@ -57,22 +57,24 @@ public class ReviewBacklogTests
         Assert.Single(off.Starter.Started);
     }
 
+    private static string Clean(string sha) => $"{PullReviews.MarkerFor(sha)}\n{PullReviews.CleanMarkerFor(sha)}\nclean";
+
     [Fact]
     public async Task A_clean_review_of_the_current_head_by_the_app_takes_the_pull_request_out_of_the_count_but_a_stranger_or_an_old_head_does_not()
     {
         using var rig = new IntakeRig(Settings(backlog: 2) with { AppLogin = "chargehand[bot]" });
         foreach (var n in new[] { 101, 102, 103 })
             Pull(rig, n, $"chargehand/issue-{n}");
-        rig.GitHub.Comments.Add(new IntakeComment(901, 101, "chargehand[bot]", PullReviews.CleanMarkerFor("abcdef0123"), rig.Now));
-        rig.GitHub.Comments.Add(new IntakeComment(902, 102, "mallory", PullReviews.CleanMarkerFor("abcdef0123"), rig.Now));
-        rig.GitHub.Comments.Add(new IntakeComment(903, 103, "chargehand[bot]", PullReviews.CleanMarkerFor("0000000000"), rig.Now));
+        rig.GitHub.Comments.Add(new IntakeComment(901, 101, "chargehand[bot]", Clean("abcdef0123"), rig.Now));
+        rig.GitHub.Comments.Add(new IntakeComment(902, 102, "mallory", Clean("abcdef0123"), rig.Now));
+        rig.GitHub.Comments.Add(new IntakeComment(903, 103, "chargehand[bot]", Clean("0000000000"), rig.Now));
         rig.Labeled(7);
         await rig.Poll();
         await rig.Poll();
 
         Assert.Contains("2 pull requests", Assert.Single(rig.State.Waiting).Detail, StringComparison.Ordinal);
         Assert.Empty(rig.Starter.Started);
-        rig.GitHub.Comments.Add(new IntakeComment(904, 102, "chargehand[bot]", PullReviews.CleanMarkerFor("abcdef0123"), rig.Now));
+        rig.GitHub.Comments.Add(new IntakeComment(904, 102, "chargehand[bot]", Clean("abcdef0123"), rig.Now));
         await rig.Poll();
         Assert.Single(rig.Starter.Started);
     }

@@ -171,7 +171,7 @@ public class IntegratorTests
         var result = await Make(host, mode, alwaysAsk is null ? null : [alwaysAsk]).IntegrateAsync(Target(), _ => { }, default);
 
         Assert.Equal(IntegrationAction.Asked, result.Action);
-        Assert.Equal(["get", "ready", "get", "comment"], host.Calls);
+        Assert.Equal(["get", "comment", "ready", "get"], host.Calls);
         Assert.Contains("ask", Assert.Single(host.Comments));
     }
 
