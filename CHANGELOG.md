@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.26](https://github.com/Egoushka/chargehand/compare/v0.19.25...v0.19.26) (2026-11-15)
+
+
+### Features
+
+* **accounts:** forecast subscription rate-limit windows ([#928](https://github.com/Egoushka/chargehand/issues/928)) ([31bea02](https://github.com/Egoushka/chargehand/commit/31bea02faface87c12beec1d3beccd8852b8f223))
+* **intake:** ask subgate before a start and queue it on a hold ([#964](https://github.com/Egoushka/chargehand/issues/964)) ([1cbe472](https://github.com/Egoushka/chargehand/commit/1cbe472986dc2cd6cc9e8d2b559504575c20f124))
+* **learning:** failure autopsy into the learning log ([#929](https://github.com/Egoushka/chargehand/issues/929)) ([d67fe38](https://github.com/Egoushka/chargehand/commit/d67fe38863274c4866ab124e510318106c985e2f))
+* **oversight:** signals engine, plain-English watchers judged by a cheap model under a daily cap ([#966](https://github.com/Egoushka/chargehand/issues/966)) ([fc68c68](https://github.com/Egoushka/chargehand/commit/fc68c6880bdc4e62f0b437b1feea9d157522aba0))
+* **sweep:** chargehand finds, sorts, does, reviews and merges issues on its own ([#949](https://github.com/Egoushka/chargehand/issues/949)) ([550fe9c](https://github.com/Egoushka/chargehand/commit/550fe9c2a41ada93d66dd1aec4bce228d23e2e0e))
+
+
+### Bug Fixes
+
+* **economics:** CanRoute honours weekly-cap pacing ([#941](https://github.com/Egoushka/chargehand/issues/941)) ([71ca3f8](https://github.com/Egoushka/chargehand/commit/71ca3f80afdd2c3ffcd1b116dae4295eb24fb3ff))
+
 ## [0.19.25](https://github.com/Egoushka/chargehand/compare/v0.19.24...v0.19.25) (2026-11-14)
 
 
