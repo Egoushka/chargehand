@@ -2071,6 +2071,9 @@ server.md	743daa259d	A repository the sessions work on must be a checkout under 
 server.md	8c903eff33	`repository_roots` must also cover the directory the server makes its 
 server.md	182580940d	A session's operational limits (wall clock, turns, tokens, memory, CPU
 server.md	05ec80849a	Keep `driven.enabled` false until a smoke batch of one task has produc
+stability.md	eca65bf170	**A deprecation runs for at least two minor versions.** The changelog 
+stability.md	5c7b568518	Open an issue labelled `compat` naming the surface, the version where 
+stability.md	8ed5a62d53	Before 1.0, that issue is useful feedback for the declaration (see the
 support-and-signing.md	9b1ad579ea	[ADR 0036](../adr/0036-support-checking-and-signed-results.md) has the
 support-and-signing.md	6c733f54c8	Until now chargehand checked that a citation exists at the pinned comm
 support-and-signing.md	152adbf9ce	It did not compare the cited text with the claim, so a claim could cit

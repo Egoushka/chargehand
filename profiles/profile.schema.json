@@ -593,6 +593,18 @@
                 "max_per_day": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Harvested starts per UTC day. Default 3." },
                 "window_hours": { "type": "integer", "minimum": 1, "maximum": 168, "description": "The length of a subscription window: the next reset is projected this far on from the last one a running task reported. Until one is reported, harvest work waits. Default 5." }
               }
+            },
+            "subgate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["url", "consumer", "token_secret"],
+              "description": "Ask subgate before a start on the subscription so interactive sessions and the pool share one allowance: a hold queues the start (reason subscription share) until its retry time. An unreachable subgate never stops a start. Unset: off.",
+              "properties": {
+                "url": { "type": "string", "minLength": 1, "description": "subgate's base URL." },
+                "consumer": { "type": "string", "minLength": 1, "maxLength": 128, "description": "The consumer name subgate knows chargehand as." },
+                "token_secret": { "type": "string", "minLength": 1, "description": "The secret-store item holding the consumer's bearer token." },
+                "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "description": "How long one call may take before the start goes on without subgate. Default 3." }
+              }
             }
           }
         },
