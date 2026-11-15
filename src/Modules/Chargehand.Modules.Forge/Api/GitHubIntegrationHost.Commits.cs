@@ -15,10 +15,18 @@ public partial interface IIntegrationHost
 
     /// <summary>Puts a label on the pull request; a forge without labels does nothing.</summary>
     Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>Turns auto-merge off on the pull request; chargehand merges by itself, pinned to the head its own review cleared, so an auto-merge armed earlier must not outlive a later push.</summary>
+    Task DisableAutoMergeAsync(RemoteRepository repository, string nodeId, CancellationToken ct) => Task.CompletedTask;
 }
 
 public sealed partial class GitHubIntegrationHost
 {
+    public async Task DisableAutoMergeAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
+    {
+        using var _ = await GraphQlAsync(repository, "turning auto-merge off", "mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){pullRequest{number}}}", new NodeVariables(nodeId), ct);
+    }
+
     public async Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct) =>
         await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/labels", new LabelsBody([label]), "the label", ct);
 

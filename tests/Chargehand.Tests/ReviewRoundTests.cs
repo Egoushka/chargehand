@@ -458,7 +458,8 @@ public class ReviewRoundTests
         var task = Assert.Single(round.Driven!.Tasks);
         Assert.Equal(new ContinueFrom("run-1", "issue-7"), task.ContinueFrom);
         Assert.Contains("The loop never ends.", Assert.Single(task.Answers!));
-        Assert.StartsWith("comment by chargehand", task.Answers![0], StringComparison.Ordinal);
+        Assert.DoesNotContain("@chargehand", task.Answers![0], StringComparison.Ordinal);
+        Assert.StartsWith("comment by chargehand's own review", task.Answers![0], StringComparison.Ordinal);
         Assert.Single(rig.GitHub.Posted, p => p.Body.Contains("chargehand-review-round attempt=1", StringComparison.Ordinal));
     }
 

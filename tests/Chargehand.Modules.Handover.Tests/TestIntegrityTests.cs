@@ -134,6 +134,7 @@ public class TestIntegrityTests
         var target = Flagged() with { TestIntegrity = null };
 
         await Make(host).IntegrateAsync(target, _ => { }, default);
+        host.Current = host.Current with { Checks = [new("ci", true, CheckOutcome.Passed, 1)] };
         var result = await Make(host).ApproveAsync(target, "aaaaaaa1", default);
 
         Assert.Equal(IntegrationAction.Merged, result.Action);

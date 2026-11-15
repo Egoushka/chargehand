@@ -23,6 +23,12 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
 
     public static string MarkerFor(string sha) => $"<!-- chargehand-review {sha} -->";
 
+    /// <summary>In the review comment of a completed run with no blocking finding: what lets the integrator merge that head. Read only from the App's own comments.</summary>
+    public static string CleanMarkerFor(string sha) => $"<!-- chargehand-review-clean {sha} -->";
+
+    /// <summary>The name a review round shows for chargehand's own review: no <c>@</c>, which would ping an account and equal the mention.</summary>
+    public const string ReviewAuthor = "chargehand's own review";
+
     private static string Short(string sha) => sha[..Math.Min(sha.Length, 7)];
 
     private static string Key(string repository, int number, string sha) => $"{repository}#{number.ToString(CultureInfo.InvariantCulture)}@{sha}";
@@ -151,9 +157,8 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         (await host.CommentBodiesAsync(repository, number, ct)).Any(b => b.Contains(MarkerFor(sha), StringComparison.Ordinal));
 
     /// <summary>Comments the findings of the reviews that ended. A review whose server stopped without a result is dropped and its commit becomes reviewable again.</summary>
-    /// <param name="onClean">Called with the repository, pull request and head after a review of a completed run with no blocking finding was posted.</param>
     /// <param name="onBlocking">Called with the round the blocking findings start, as chargehand's own comment (not an allowed author's).</param>
-    public async Task ReportEndedAsync(Func<string, int, string, CancellationToken, Task> onClean, Func<PendingReview, CancellationToken, Task> onBlocking, CancellationToken ct)
+    public async Task ReportEndedAsync(Func<PendingReview, CancellationToken, Task> onBlocking, CancellationToken ct)
     {
         foreach (var review in state.Reviews.ToList())
         {
@@ -161,7 +166,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             {
                 var entry = await log.ReadAsync(review.RunId, ct);
                 if (entry.Run is { } run)
-                    await PostAsync(review, run.Result, onClean, onBlocking, ct);
+                    await PostAsync(review, run.Result, onBlocking, ct);
                 else if (time.GetUtcNow() - review.Started > GitHubIntake.LostAfter && (entry.Start is null || !entry.Start.OwnerAlive()))
                 {
                     state.Reviews.Remove(review);
@@ -176,12 +181,12 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         }
     }
 
-    private async Task PostAsync(PullReview review, ResultContract result, Func<string, int, string, CancellationToken, Task> onClean, Func<PendingReview, CancellationToken, Task> onBlocking, CancellationToken ct)
+    private async Task PostAsync(PullReview review, ResultContract result, Func<PendingReview, CancellationToken, Task> onBlocking, CancellationToken ct)
     {
         try
         {
             if (!await HasCommentAsync(review.Repository, review.Pull, review.Sha, ct))
-                await host.CommentAsync(review.Repository, review.Pull, Comment(review.Sha, result), ct);
+                await host.CommentAsync(review.Repository, review.Pull, Comment(review.Sha, result, settings.ReviewBlockConfidence), ct);
         }
         catch (IntakeException e) when (e.Status is 404 or 410)
         {
@@ -192,9 +197,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         Done(review);
         if (result.Status != ResultStatus.Completed)
             return;
-        if (ReviewVerdict.IsClean(result.Claims, settings.ReviewBlockConfidence))
-            await onClean(review.Repository, review.Pull, review.Sha, ct);
-        else
+        if (!ReviewVerdict.IsClean(result.Claims, settings.ReviewBlockConfidence))
             await onBlocking(Round(review, result), ct);
     }
 
@@ -210,13 +213,16 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         var findings = result.Claims.Where(c => ReviewVerdict.IsBlocking(c, settings.ReviewBlockConfidence)).OrderByDescending(c => c.Confidence).Take(MaxFindings)
             .Select(c => $"{Plain(c.Text, MaxFinding)} (evidence: {Locators(c, result)})");
         _ = ulong.TryParse(review.Sha[..Math.Min(review.Sha.Length, 15)], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var id);
-        return new PendingReview($"c{id.ToString(CultureInfo.InvariantCulture)}", review.Repository, review.Pull, "chargehand", string.Join("\n", findings.Select(f => $"- {f}")), null, null, time.GetUtcNow());
+        return new PendingReview($"c{id.ToString(CultureInfo.InvariantCulture)}", review.Repository, review.Pull, ReviewAuthor, string.Join("\n", findings.Select(f => $"- {f}")), null, null, time.GetUtcNow());
     }
 
     /// <summary>The comment for a finished review. Model text is neutralised: an @ gets a zero-width space so it pings no one, &lt; becomes an entity so it opens no HTML, and line breaks become spaces.</summary>
-    public static string Comment(string sha, ResultContract result)
+    public static string Comment(string sha, ResultContract result, decimal blockAt = 0.8m)
     {
-        var text = new StringBuilder(MarkerFor(sha)).Append('\n').Append(GitHubIntake.Marker).Append("\n### chargehand review\n\n");
+        var text = new StringBuilder(MarkerFor(sha)).Append('\n');
+        if (result.Status == ResultStatus.Completed && ReviewVerdict.IsClean(result.Claims, blockAt))
+            text.Append(CleanMarkerFor(sha)).Append('\n');
+        text.Append(GitHubIntake.Marker).Append("\n### chargehand review\n\n");
         if (result.Status == ResultStatus.Failed)
             text.Append(CultureInfo.InvariantCulture, $"The review failed (`{result.Error?.Code.ToString() ?? "unknown"}`): {Plain(result.Error?.Message ?? result.Summary, MaxSummary)}");
         else if (result.Status != ResultStatus.Completed)

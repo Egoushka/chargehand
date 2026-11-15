@@ -107,6 +107,13 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
     /// <summary>The labels put on the pull request; not in <see cref="Calls"/>.</summary>
     public List<string> Labels { get; } = [];
 
+    public Task DisableAutoMergeAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
+    {
+        Calls.Add("disable-auto-merge");
+        Current = Current with { AutoMerge = false };
+        return Task.CompletedTask;
+    }
+
     public Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct)
     {
         Labels.Add(label);

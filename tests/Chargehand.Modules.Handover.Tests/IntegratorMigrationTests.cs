@@ -46,7 +46,7 @@ public class IntegratorMigrationTests
         var approved = await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);
 
         Assert.Equal(IntegrationAction.Asked, result.Action);
-        Assert.Equal(IntegrationAction.None, approved.Action);
+        Assert.Equal(IntegrationAction.Asked, approved.Action);
         Assert.Equal(["agent:needs-you"], host.Labels);
         Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal) || c.StartsWith("auto-merge", StringComparison.Ordinal));
     }
@@ -65,7 +65,7 @@ public class IntegratorMigrationTests
     [Fact]
     public async Task A_pull_request_without_a_migration_still_merges()
     {
-        var host = new FakeIntegrationHost { ChangedPaths = ["src/Store.cs", "docs/db/migrations.md", "db/seeds/0001.sql"], StatusAfterReady = "CLEAN" };
+        var host = new FakeIntegrationHost { ChangedPaths = ["src/Store.cs", "docs/db/migrations.md", "db/seeds/0001.sql"], StatusAfterReady = "CLEAN", Current = FakeIntegrationHost.Snapshot(checks: Green) };
 
         var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
         var approved = await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);

@@ -173,6 +173,9 @@ internal sealed class FakeGitHub : IIntakeHost
         return Task.FromResult<IReadOnlyList<ReviewComment>>([.. ReviewComments.Where(c => c.UpdatedAt >= since)]);
     }
 
+    public Task<IReadOnlyList<string>> CommentBodiesByAsync(string repository, int number, string login, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>>([.. Comments.Where(c => c.IssueNumber == number && string.Equals(c.Author, login, StringComparison.OrdinalIgnoreCase)).OrderBy(c => c.Id).Select(c => c.Body)]);
+
     public Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<string>>([.. Comments.Where(c => c.IssueNumber == number).OrderBy(c => c.Id).Select(c => c.Body)]);
 
@@ -406,9 +409,11 @@ internal sealed class IntakeRig : IDisposable
     private readonly TempDir _dir = new();
     private readonly IntegratorPolicy? _policy;
     private readonly ManagedClones? _clones;
+    private readonly Integrator? _approver;
 
-    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null, ManagedClones? clones = null)
+    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null, ManagedClones? clones = null, Integrator? approver = null)
     {
+        _approver = approver;
         _policy = policy;
         _clones = clones;
         Settings = settings ?? new AutomationGitHub(new Dictionary<string, AutomationRepository> { [Repo] = new("/srv/repos/repo") }, [Author]);
@@ -438,9 +443,9 @@ internal sealed class IntakeRig : IDisposable
     public DateTimeOffset Now => Time.GetUtcNow();
 
     /// <summary>An open pull request GitHub lists, whose head fetches to its listed sha.</summary>
-    public ReviewablePull OpenPull(int number, string sha, string author = Author, bool draft = false, string title = "Retry the call", string body = "Gives up less often.")
+    public ReviewablePull OpenPull(int number, string sha, string author = Author, bool draft = false, string title = "Retry the call", string body = "Gives up less often.", string branch = "")
     {
-        var pull = new ReviewablePull(number, title, body, author, sha, draft);
+        var pull = new ReviewablePull(number, title, body, author, sha, draft, branch);
         GitHub.OpenPulls.RemoveAll(p => p.Number == number);
         GitHub.OpenPulls.Add(pull);
         Heads.Listed = n => GitHub.OpenPulls.Single(p => p.Number == n).HeadSha;
@@ -455,7 +460,7 @@ internal sealed class IntakeRig : IDisposable
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add,
-        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now), pooled: (repository, issue, ct) => Pooled?.Invoke(repository, issue, ct) ?? Task.FromResult(false));
+        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now), pooled: (repository, issue, ct) => Pooled?.Invoke(repository, issue, ct) ?? Task.FromResult(false), approver: _approver);
 
     /// <summary>Whether the task pool holds an open item for an issue; null: none does.</summary>
     public Func<string, int, CancellationToken, Task<bool>>? Pooled { get; set; }

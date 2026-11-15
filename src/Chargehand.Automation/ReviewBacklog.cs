@@ -22,7 +22,7 @@ internal sealed class ReviewBacklog(AutomationGitHub settings, IIntakeHost host,
         return count >= settings.MaxReviewBacklog ? $"{count.ToString(CultureInfo.InvariantCulture)} pull requests await review or are being written (limit {settings.MaxReviewBacklog.ToString(CultureInfo.InvariantCulture)})" : null;
     }
 
-    /// <summary>Open, chargehand's own branch, and no review yet from an allowed author; the tasks that run and have not opened theirs are added in <see cref="HoldAsync"/>.</summary>
+    /// <summary>Open, chargehand's own branch, and no review yet from an allowed author and no clean review of chargehand's own on its current head; the tasks that run and have not opened theirs are added in <see cref="HoldAsync"/>.</summary>
     private async Task<int> CountAsync(string repository, CancellationToken ct)
     {
         var count = 0;
@@ -31,6 +31,9 @@ internal sealed class ReviewBacklog(AutomationGitHub settings, IIntakeHost host,
             if (!GitHubIntake.IsChargehandBranch(pull.HeadBranch, pull.SameRepository))
                 continue;
             if ((await host.ReviewersAsync(repository, pull.Number, ct)).Any(login => settings.AllowedAuthors?.Contains(login, StringComparer.OrdinalIgnoreCase) == true))
+                continue;
+            if (settings.AppLogin is { Length: > 0 } app && pull.HeadSha.Length >= 7
+                && (await host.CommentBodiesByAsync(repository, pull.Number, app, ct)).Any(b => b.Contains(PullReviews.CleanMarkerFor(pull.HeadSha), StringComparison.Ordinal)))
                 continue;
             count++;
         }

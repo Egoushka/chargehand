@@ -572,7 +572,12 @@ Chargehand.Modules.Forge.Api.IIntegrationHost? IntegrationHost(Chargehand.Config
 Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? drivenRun)
 {
     if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
+    {
+        if (profile.Driven?.Integrator is { } noIntake)
+            foreach (var gap in Chargehand.Automation.GitHubIntake.MergeChainGaps(profile.Automation?.Github, noIntake, null))
+                Console.Error.WriteLine($"chargehand: warning: {gap}");
         return null;
+    }
     var api = new HttpClient { BaseAddress = GitHubApiRoot(driven) };
     var tokens = new Chargehand.Modules.Forge.Api.GitHubInstallationTokens(api, appId, installationId, () => profile.Secret(privateKeySecret), TimeProvider.System);
     var directory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake");
@@ -584,9 +589,12 @@ Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? dr
     var poolStore = poolFile is null ? null : Chargehand.Modules.Pool.Api.SqlitePoolStore.Open(poolFile);
     // The App's own pull requests are reviewed too, and a clean review of one is what lets the integrator enable auto-merge.
     github = github with { AppLogin = github.AppLogin ?? (driven.Integrator.AppSlug is { Length: > 0 } slug ? $"{slug}[bot]" : null) };
+    var sourcesFile = Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json"));
+    foreach (var gap in Chargehand.Automation.GitHubIntake.MergeChainGaps(github, driven.Integrator, sourcesFile))
+        Console.Error.WriteLine($"chargehand: warning: {gap}");
     var approver = new Chargehand.Modules.Handover.Api.Integrator(new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), new Chargehand.Modules.Forge.Api.GitHubIntegrationHost(api, tokens), driven.Integrator.CiFix, forge: driven.Forge);
     return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
-        integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: Chargehand.Automation.IntakeSources.Load(Path.Combine(directory, "sources.json")), clones: clones,
+        integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: sourcesFile, clones: clones,
         subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null,
         poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct),
         pooled: poolStore is null ? null : poolStore.HasOpenItemAsync, approver: approver);

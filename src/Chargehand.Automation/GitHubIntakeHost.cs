@@ -50,6 +50,10 @@ public sealed class GitHubIntakeHost(HttpClient http, IInstallationTokens tokens
     public async Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", "the conversation", ct)).Select(c => Text(c, "body") ?? "")];
 
+    public async Task<IReadOnlyList<string>> CommentBodiesByAsync(string repository, int number, string login, CancellationToken ct) =>
+        [.. (await PagesAsync(repository, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/comments", "the conversation", ct))
+            .Where(c => string.Equals(Login(c, "user"), login, StringComparison.OrdinalIgnoreCase)).Select(c => Text(c, "body") ?? "")];
+
     public async Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct) =>
         [.. (await PagesAsync(repository, $"{RepoPath(repository)}/pulls?state=open", "the open pull requests", ct)).Select(p => Parse(() => new ReviewablePull(p.GetProperty("number").GetInt32(), Text(p, "title") ?? "",
             Text(p, "body") ?? "", Login(p, "user"), Text(p.GetProperty("head"), "sha") ?? "", p.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True, Text(p.GetProperty("head"), "ref") ?? "",

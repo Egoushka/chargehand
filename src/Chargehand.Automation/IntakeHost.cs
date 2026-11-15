@@ -69,6 +69,9 @@ public interface IIntakeHost
     /// <summary>The bodies of an issue's or pull request's conversation comments, oldest first: where the hidden markers of fix attempts and review rounds are.</summary>
     Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct);
 
+    /// <summary>The bodies of the conversation comments that <paramref name="login"/> wrote, oldest first: a marker that gates a merge is read only from the App's own.</summary>
+    Task<IReadOnlyList<string>> CommentBodiesByAsync(string repository, int number, string login, CancellationToken ct);
+
     /// <summary>The open pull requests of a repository, drafts included.</summary>
     Task<IReadOnlyList<ReviewablePull>> OpenPullsAsync(string repository, CancellationToken ct);
 

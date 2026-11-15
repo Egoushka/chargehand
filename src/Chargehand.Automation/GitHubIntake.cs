@@ -177,8 +177,10 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _backlog.NewPoll();
         _overlap.NewPoll();
         await ReportEndedAsync(ct);
-        await _reviews.ReportEndedAsync(ApproveCleanAsync, QueueReviewRoundAsync, ct);
+        await _reviews.ReportEndedAsync(QueueReviewRoundAsync, ct);
         _watched = await WatchAsync(ct);
+        foreach (var name in _watched.Keys.Where(Sources.IsOn).ToList())
+            await ApproveReviewedAsync(name, ct);
         LogPoll(_watched.Keys.Count(Sources.IsOn), state.Tasks.Count(t => t.Phase == IntakePhase.Running));
         foreach (var (name, watched) in _watched)
         {
@@ -743,7 +745,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var taskId = $"pr-{number.ToString(CultureInfo.InvariantCulture)}";
         var task = new DrivenTask(taskId, Size: settings.BudgetClass, Answers: [.. taken.Select(t => IntakeGoal.ReviewAnswer(t.Author, t.Path, t.Line, t.Body))],
             ContinueFrom: new ContinueFrom(found.Batch, found.Task));
-        var authors = string.Join(", ", taken.Select(t => t.Author).Distinct(StringComparer.OrdinalIgnoreCase).Select(a => $"@{a}"));
+        var authors = string.Join(", ", taken.Select(t => t.Author).Distinct(StringComparer.OrdinalIgnoreCase).Select(a => a == PullReviews.ReviewAuthor ? a : $"@{a}"));
         candidates.Add(DefaultCandidate(key, TriggerSource.ReviewRound, fresh[0].At, async ct2 =>
         {
             if (await SlotAsync(key, name, number, ct2) is { } held)

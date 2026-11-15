@@ -15,9 +15,7 @@ public sealed partial class Integrator
             await CommentOnceAsync(target, pr, ConflictMarker, "This pull request conflicts with its base branch, so chargehand is not merging it; a person needs to resolve it.", ct);
             return Say(report, IntegrationAction.NeedsAttention, "the pull request conflicts with its base; not merged");
         }
-        return pr.AutoMerge
-            ? Say(report, IntegrationAction.AutoMergeEnabled, "auto-merge was already enabled")
-            : Say(report, IntegrationAction.AwaitingReview, "marked ready; auto-merge is enabled once chargehand's review of this head has no blocking finding");
+        return Say(report, IntegrationAction.AwaitingReview, "marked ready; chargehand merges it once its review of this head has no blocking finding and the required checks are green");
     }
 
     private async Task NeedsYouAsync(IntegrationTarget target, CancellationToken ct)
@@ -32,9 +30,10 @@ public sealed partial class Integrator
         }
     }
 
-    /// <summary>Called once chargehand's own review of <paramref name="headSha"/> has no blocking finding: enables auto-merge (or merges a pull request that is mergeable already) in a repository whose mode is merge,
-    /// when the head is still that commit, no required check failed and no migration changed. Checks still running are fine: GitHub merges only after the required ones pass. Anything else enables nothing.</summary>
-    public async Task<IntegrationResult> ApproveAsync(IntegrationTarget target, string headSha, CancellationToken ct, Action<string>? report = null)
+    /// <summary>Run on every poll for a chargehand pull request. Auto-merge, if one was armed earlier, is turned off: a merge happens only here. When <paramref name="reviewedSha"/> (the head chargehand's own clean review
+    /// covers; empty when none does) is still the head, the pull request is merged now, pinned to it, in a repository whose mode is merge, when it is ready, every required check is green, it changes no migration and
+    /// carries none of the markers that ask a person instead. Checks still running return <see cref="IntegrationAction.AwaitingReview"/>; a moved head merges nothing, the next review of the new head decides.</summary>
+    public async Task<IntegrationResult> ApproveAsync(IntegrationTarget target, string reviewedSha, CancellationToken ct, Action<string>? report = null)
     {
         report ??= _ => { };
         if (target.LocalOnly || target.Partial || ModeFor(target) != IntegrationMode.Merge)
@@ -43,18 +42,15 @@ public sealed partial class Integrator
         {
             var pr = await host.GetAsync(target.Repository, target.Number, ct);
             if (pr.Merged || pr.Closed)
-                return Say(report, IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
-            if (!string.Equals(pr.HeadSha, headSha, StringComparison.OrdinalIgnoreCase))
-                return Say(report, IntegrationAction.None, $"the head moved to {Short(pr.HeadSha)} after the review of {Short(headSha)}; not merged");
-            if (pr.IsDraft)
-                return Say(report, IntegrationAction.None, "the pull request is still a draft; not merged");
-            if (pr.Checks.Any(c => c.Required && c.Outcome is CheckOutcome.Failed or CheckOutcome.Other))
-                return Say(report, IntegrationAction.None, "a required check has not passed; not merged");
-            if (MigrationPaths.Find(await host.ChangedPathsAsync(target.Repository, target.Number, ct)) is { } migration)
-                return Say(report, IntegrationAction.None, $"it adds a database migration ({migration}); not merged");
-            if (await host.ChecksGateAsync(target.Repository, pr.BaseBranch, ct) != ChecksGate.Required)
-                return Say(report, IntegrationAction.None, "the base branch requires no status check; not merged");
-            return await MergeAsync(target, pr, report, ct);
+                return new(IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
+            if (pr.AutoMerge)
+            {
+                await host.DisableAutoMergeAsync(target.Repository, pr.NodeId, ct);
+                report("auto-merge turned off: chargehand merges only the head its own review cleared");
+            }
+            if (string.IsNullOrEmpty(reviewedSha) || !string.Equals(pr.HeadSha, reviewedSha, StringComparison.OrdinalIgnoreCase))
+                return new(IntegrationAction.None, "no clean review of the current head; not merged");
+            return await MergeReviewedAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
@@ -62,29 +58,27 @@ public sealed partial class Integrator
         }
     }
 
-    private async Task<IntegrationResult> MergeAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
+    private async Task<IntegrationResult> MergeReviewedAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
     {
+        if (pr.IsDraft || pr.Comments.Any(c => c.Contains(TestIntegrityMarker, StringComparison.Ordinal) || c.Contains(AskMarker, StringComparison.Ordinal) || c.Contains(NoChecksMarker, StringComparison.Ordinal)))
+            return new(IntegrationAction.None, "a draft or a pull request asked about is left for a person; not merged");
+        var required = pr.Checks.Where(c => c.Required).ToList();
+        if (required.Any(c => c.Outcome is CheckOutcome.Failed or CheckOutcome.Other))
+            return new(IntegrationAction.None, "a required check has not passed; not merged");
+        if (required.Count == 0 || required.Any(c => c.Outcome == CheckOutcome.Pending))
+            return new(IntegrationAction.AwaitingReview, "the required checks are still running; merged once they are green");
+        if (MigrationPaths.Find(await host.ChangedPathsAsync(target.Repository, target.Number, ct)) is { } migration)
+        {
+            var told = pr.Comments.Any(c => c.Contains(MigrationMarker, StringComparison.Ordinal));
+            await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand does not merge this pull request: it adds a database migration ({migration}). The repository owner merges it.", ct);
+            if (!told)
+                await NeedsYouAsync(target, ct);
+            return Say(report, IntegrationAction.Asked, $"not merged because it adds a database migration ({migration})");
+        }
+        if (await host.ChecksGateAsync(target.Repository, pr.BaseBranch, ct) != ChecksGate.Required)
+            return new(IntegrationAction.None, "the base branch requires no status check; not merged");
         if (pr.MergeStatus == "DIRTY")
-        {
-            await CommentOnceAsync(target, pr, ConflictMarker, "This pull request conflicts with its base branch, so chargehand is not merging it; a person needs to resolve it.", ct);
-            return Say(report, IntegrationAction.NeedsAttention, "the pull request conflicts with its base; not merged");
-        }
-        if (pr.AutoMerge)
-            return Say(report, IntegrationAction.AutoMergeEnabled, "auto-merge was already enabled");
-        if (pr.MergeStatus == "CLEAN")
-            return await MergeNowAsync(target, pr.HeadSha, report, ct);
-        try
-        {
-            await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
-        }
-        catch (IntegrationException)
-        {
-            // GitHub refuses auto-merge on a pull request that is mergeable already; then the merge itself goes through the same rules.
-            var fresh = await host.GetAsync(target.Repository, target.Number, ct);
-            if (fresh.IsDraft || fresh.MergeStatus is not ("CLEAN" or "UNSTABLE"))
-                throw;
-            return await MergeNowAsync(target, fresh.HeadSha, report, ct);
-        }
-        return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; {host.Name} merges once the required checks pass");
+            return new(IntegrationAction.None, "the pull request conflicts with its base; not merged");
+        return await MergeNowAsync(target, pr.HeadSha, report, ct);
     }
 }
