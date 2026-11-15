@@ -67,9 +67,11 @@ public sealed partial class IssueSweep
             {
                 _claudeMd = File.Exists(path) ? File.ReadAllText(path) : null;
             }
+            // agent-checks: allow empty-catch -- CLAUDE.md is optional context for the sorting pass; one that cannot be read sorts without it
             catch (IOException)
             {
             }
+            // agent-checks: allow empty-catch -- as above: an unreadable CLAUDE.md only means less context
             catch (UnauthorizedAccessException)
             {
             }

@@ -50,7 +50,7 @@ public sealed class ConsoleSweepTests
             var body = await Get(http, "/v1/sweep");
             if (body.TryGetProperty("last", out _))
                 return body;
-            await Task.Delay(50);
+            await Task.Delay(50); // agent-checks: allow sleep-in-test -- poll interval of a wait on the sweep's background run, bounded at 5 s
         }
         throw new TimeoutException("the sweep did not finish");
     }
