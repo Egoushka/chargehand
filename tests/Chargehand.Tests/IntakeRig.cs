@@ -65,6 +65,15 @@ internal sealed class FakeGitHub : IIntakeHost
 
     public Dictionary<int, IssueState> IssueStates { get; } = [];
 
+    /// <summary>Per-repository open issues; a repository listed here does not read <see cref="OpenIssues"/>.</summary>
+    public Dictionary<string, List<IntakeIssue>> OpenIssuesByRepo { get; } = [];
+
+    /// <summary>Per-repository issue states; read before <see cref="IssueStates"/>.</summary>
+    public Dictionary<(string Repository, int Number), IssueState> RepoIssueStates { get; } = [];
+
+    /// <summary>Every comment posted, with its repository.</summary>
+    public List<(string Repository, int Number, string Body)> RepoComments { get; } = [];
+
     /// <summary>Repositories whose open-issue, state, label, issue-create and body-edit calls throw an <see cref="IntakeException"/>.</summary>
     public HashSet<string> SweepFailFor { get; } = [];
 
@@ -89,12 +98,14 @@ internal sealed class FakeGitHub : IIntakeHost
     public Task<IReadOnlyList<IntakeIssue>> OpenIssuesAsync(string repository, CancellationToken ct)
     {
         SweepCheck(repository);
-        return Task.FromResult<IReadOnlyList<IntakeIssue>>([.. OpenIssues.Where(i => !i.IsPullRequest)]);
+        return Task.FromResult<IReadOnlyList<IntakeIssue>>([.. (OpenIssuesByRepo.TryGetValue(repository, out var own) ? own : OpenIssues).Where(i => !i.IsPullRequest)]);
     }
 
     public Task<IssueState?> IssueStateAsync(string repository, int number, CancellationToken ct)
     {
         SweepCheck(repository);
+        if (RepoIssueStates.TryGetValue((repository, number), out var own))
+            return Task.FromResult<IssueState?>(own);
         return Task.FromResult(IssueStates.TryGetValue(number, out var state) ? state : (IssueState?)null);
     }
 
@@ -191,6 +202,7 @@ internal sealed class FakeGitHub : IIntakeHost
             throw new IntakeException("GitHub answered 500 to the comment", 500);
         var id = _next++;
         Posted.Add((number, body));
+        RepoComments.Add((repository, number, body));
         Comments.Add(new IntakeComment(id, number, "chargehand[bot]", body, Now()));
         return Task.FromResult(id);
     }

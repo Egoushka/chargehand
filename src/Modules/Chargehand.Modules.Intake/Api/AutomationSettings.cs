@@ -157,3 +157,9 @@ public sealed record AutomationHarvest(string Label = "priority:low", int LeadMi
 
 /// <param name="Path">The checkout the server reads the base commit from and the batch works from (ADR 0023); its <c>origin</c> is the repository.</param>
 public sealed record AutomationRepository(string Path);
+
+/// <summary>The issue sweep (see the issue-sweep design). Off unless <paramref name="Enabled"/>.</summary>
+/// <param name="At">Clock times of day (<c>HH:mm</c>) in <paramref name="TimeZone"/>; null: the default times.</param>
+/// <param name="Days">The days a scheduled sweep runs; null: every day.</param>
+/// <param name="MaxSortsPerSweep">The most model calls one sweep makes, across all repositories; cached verdicts cost none.</param>
+public sealed record SweepSettings(bool Enabled = false, IReadOnlyList<string>? At = null, IReadOnlyList<DayOfWeek>? Days = null, string TimeZone = "UTC", int MaxSortsPerSweep = 200);
