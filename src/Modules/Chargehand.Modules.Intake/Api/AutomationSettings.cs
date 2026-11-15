@@ -58,13 +58,14 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// A repository in <paramref name="Repositories"/> keeps its own checkout.</param>
 /// <param name="PriorityLabels">Label names that set a waiting trigger's place in the queue, highest first (default <c>priority:high</c>, <c>priority:low</c>; issue #576). An issue with exactly one of
 /// these labels waits ahead of one with a label later in the list, or none; one with more than one of them is not ranked by it, the same as having none. Checked before source, size and age.</param>
+/// <param name="Subgate">Subgate's admission before a start on the subscription: a hold queues the start (reason <c>subscription share</c>); null: off (default), and unreachable means the start goes on.</param>
 /// <param name="Harvest">The quota harvester (issue #792): issues with its label wait for the end of a subscription window that still has quota left; null: off, and they start like any other.</param>
 /// <param name="ReviewBlockConfidence">A review finding at or above this confidence blocks a merge and starts a review round (default 0.8); a review with none is the approval.</param>
 /// <param name="AppLogin">The integrator App's login (<c>&lt;slug&gt;[bot]</c>), whose pull requests <paramref name="ReviewPulls"/> also reviews; left out, it is read from the integrator's <c>app_slug</c>.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
     bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false, int MaxStartsPerHour = 30, int BreakerCooldownMinutes = 120,
-    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null, decimal ReviewBlockConfidence = 0.8m, string? AppLogin = null)
+    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null, decimal ReviewBlockConfidence = 0.8m, string? AppLogin = null, AutomationSubgate? Subgate = null)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
@@ -158,6 +159,12 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
 /// <param name="MaxPerDay">Harvested starts per UTC day (default 3).</param>
 /// <param name="WindowHours">The length of a subscription window, to project the next reset from the last one a running task reported (default 5). Until one is reported, no window is known and harvest
 /// work waits.</param>
+/// <param name="Url">subgate's base URL.</param>
+/// <param name="Consumer">The consumer name subgate knows chargehand as.</param>
+/// <param name="TokenSecret">The secret-store item holding the consumer's bearer token.</param>
+/// <param name="TimeoutSeconds">How long one call may take before the start goes on without subgate (default 3).</param>
+public sealed record AutomationSubgate(string Url, string Consumer, string TokenSecret, int TimeoutSeconds = 3);
+
 public sealed record AutomationHarvest(string Label = "priority:low", int LeadMinutes = 30, int MaxPerDay = 3, int WindowHours = 5);
 
 /// <param name="Path">The checkout the server reads the base commit from and the batch works from (ADR 0023); its <c>origin</c> is the repository.</param>

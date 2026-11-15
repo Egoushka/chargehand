@@ -77,6 +77,9 @@ const string Usage = """
       routes [run-log.jsonl ...]   routing report per preset, node kind and model; suggestions only
       score <run-id> <0-1> [name]  records a hand score for a run (name defaults to quality)
       eval seed <cell> <run-id>... proposes eval items (JSONL on stdout) from runs in the log, for review
+      eval seed-human-fixes <edits.jsonl>
+                                   proposes eval items (JSONL on stdout) for review/worker, code/writer and driven/session from issue #452's
+                                   classified human-edits store, one per commit whose category names a lesson (CHARGEHAND issue #453)
       eval support <examples.jsonl> runs the support judge over labelled claims and prints agreement and every miss
       eval score-claims <claims.jsonl> --repo <dir> --commit <sha> [--out <verdicts.jsonl>]   resolves each claim's path:line locators at the commit and judges the cited text
       eval push <cell>             pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset
@@ -341,6 +344,11 @@ switch (argv)
         return 0;
     case ["eval", "seed", var cellName, .. var runIds]:
         foreach (var item in EvalRunner.Seed(Cell(cellName), await Task.WhenAll(runIds.Select(r => runLog.ReadAsync(r, ct)))))
+            Console.WriteLine(JsonSerializer.Serialize(item, ContractJson.Options));
+        return 0;
+    case ["eval", "seed-human-fixes", var editsFile]:
+        var edits = await new Chargehand.Modules.Oversight.Api.JsonlHumanEditStore(editsFile).ReadAsync(ct);
+        foreach (var item in HumanFixEvalSeed.Seed(EvalCell.Load(Path.Combine(root, "evals", "cells.json")), edits, root))
             Console.WriteLine(JsonSerializer.Serialize(item, ContractJson.Options));
         return 0;
     case ["eval", "push", var cellName]:
@@ -611,7 +619,21 @@ Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? dr
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: sourcesFile, clones: clones,
         subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null,
         poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct),
-        pooled: poolStore is null ? null : poolStore.HasOpenItemAsync, approver: approver);
+        pooled: poolStore is null ? null : poolStore.HasOpenItemAsync, approver: approver,
+        subgateHoldUntil: github.Subgate is { } subgate ? SubgateHold(subgate) : null);
+}
+
+// subgate's admission (off unless automation.github.subgate is set); a bad URL turns it off rather than stopping the server.
+Func<CancellationToken, Task<DateTimeOffset?>>? SubgateHold(Chargehand.Modules.Intake.Api.AutomationSubgate subgate)
+{
+    if (!Uri.TryCreate(subgate.Url.EndsWith('/') ? subgate.Url : subgate.Url + "/", UriKind.Absolute, out var root))
+    {
+        Console.Error.WriteLine("chargehand: automation.github.subgate.url is not a URL; subgate is off");
+        return null;
+    }
+    var http = new HttpClient { BaseAddress = root, Timeout = TimeSpan.FromSeconds(Math.Max(1, subgate.TimeoutSeconds)) };
+    http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.Secret(subgate.TokenSecret));
+    return new Chargehand.Automation.SubgateAdmission(http, subgate.Consumer, warn: Console.Error.WriteLine).HoldUntilAsync;
 }
 
 // The managed clones a read-only checkout falls back to, fetched with the integrator App's token; null without an App, and the checkout's own commit is used.

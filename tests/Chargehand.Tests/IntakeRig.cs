@@ -460,7 +460,8 @@ internal sealed class IntakeRig : IDisposable
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add,
-        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now), pooled: (repository, issue, ct) => Pooled?.Invoke(repository, issue, ct) ?? Task.FromResult(false), approver: _approver);
+        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now), pooled: (repository, issue, ct) => Pooled?.Invoke(repository, issue, ct) ?? Task.FromResult(false), approver: _approver,
+        subgateHoldUntil: ct => SubgateHold?.Invoke(ct) ?? Task.FromResult<DateTimeOffset?>(null));
 
     /// <summary>Whether the task pool holds an open item for an issue; null: none does.</summary>
     public Func<string, int, CancellationToken, Task<bool>>? Pooled { get; set; }
@@ -470,6 +471,8 @@ internal sealed class IntakeRig : IDisposable
 
     /// <summary>When the rate-limit pause a running task reported ends; null: none.</summary>
     public DateTimeOffset? RateLimitUntil { get; set; }
+
+    public Func<CancellationToken, Task<DateTimeOffset?>>? SubgateHold { get; set; }
 
     private string SourcesPath => Path.Combine(_dir.Path, "intake", "sources.json");
 
