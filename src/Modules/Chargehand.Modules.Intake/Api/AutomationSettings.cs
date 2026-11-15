@@ -11,8 +11,9 @@ namespace Chargehand.Modules.Intake.Api;
 /// <param name="Schedules">Work that runs on a clock within a monthly cap (ADR 0068); null: none.</param>
 /// <param name="Account">An account of <c>http.accounts</c> that every automated start (GitHub, schedules) is charged to and admitted as (ADR 0076): its caps, budget clamps, concurrency
 /// limit and opt-in forecast pause apply. Null: they run as the owner, with no account caps.</param>
+/// <param name="Sweep">The issue sweep (automation.sweep); null: off.</param>
 /// <param name="Notify">Where a driven task's question or partial stop is sent with its answer options (ADR 0077); null: nowhere, it waits in the inbox.</param>
-public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, string? Account = null, AutomationNotify? Notify = null)
+public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, string? Account = null, AutomationNotify? Notify = null, SweepSettings? Sweep = null)
 {
     /// <param name="drivenEnabled">Whether <c>driven.enabled</c> is set.</param>
     public void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
@@ -20,6 +21,7 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
         Github?.Validate(drivenEnabled, integrator);
         Schedules?.Validate(drivenEnabled);
         Notify?.Validate(drivenEnabled);
+        Sweep?.Validate(Github is not null);
     }
 
     /// <summary>The keys the profile sets that are accepted and ignored, one line each, for the server to write once at startup.</summary>
@@ -165,4 +167,45 @@ public sealed record AutomationRepository(string Path);
 /// <param name="At">Clock times of day (<c>HH:mm</c>) in <paramref name="TimeZone"/>; null: the default times.</param>
 /// <param name="Days">The days a scheduled sweep runs; null: every day.</param>
 /// <param name="MaxSortsPerSweep">The most model calls one sweep makes, across all repositories; cached verdicts cost none.</param>
-public sealed record SweepSettings(bool Enabled = false, IReadOnlyList<string>? At = null, IReadOnlyList<DayOfWeek>? Days = null, string TimeZone = "UTC", int MaxSortsPerSweep = 200);
+public sealed record SweepSettings(bool Enabled = false, IReadOnlyList<string>? At = null, IReadOnlyList<DayOfWeek>? Days = null, string TimeZone = "UTC", int MaxSortsPerSweep = 200)
+{
+    public static readonly IReadOnlyList<string> DefaultAt = ["08:00", "15:00", "20:00"];
+
+    public IReadOnlyList<string> Times => At ?? DefaultAt;
+
+    public IReadOnlyList<DayOfWeek> RunDays => Days ?? Enum.GetValues<DayOfWeek>();
+
+    /// <param name="githubSet">Whether <c>automation.github</c> is set: the sweep reads its repositories.</param>
+    internal void Validate(bool githubSet)
+    {
+        List<string> problems = [];
+        if (Enabled && !githubSet)
+            problems.Add("needs automation.github, whose repositories it sweeps");
+        foreach (var time in Times)
+            if (!TimeOnly.TryParseExact(time, "HH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
+                problems.Add($"at entry '{time}' must be HH:mm");
+        if (Times.Count == 0)
+            problems.Add("at must list at least one time");
+        foreach (var day in RunDays)
+            if (!Enum.IsDefined(day)) problems.Add($"days entry {(int)day} is not a day of the week");
+        if (!KnownZone(TimeZone))
+            problems.Add($"time_zone '{TimeZone}' is not a known time zone");
+        if (MaxSortsPerSweep is < 1 or > 5000)
+            problems.Add("max_sorts_per_sweep must be 1-5000");
+        if (problems.Count > 0)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.sweep: {string.Join("; ", problems)}", "Fix automation.sweep in the profile.");
+    }
+
+    public static bool KnownZone(string id)
+    {
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(id);
+            return true;
+        }
+        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return false;
+        }
+    }
+}

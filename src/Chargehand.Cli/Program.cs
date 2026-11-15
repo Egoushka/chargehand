@@ -118,6 +118,8 @@ const string Usage = """
 System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
 System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
 var argv = args.ToList();
+// What the issue sweep shares with intake (its GitHub host, heads and state), set by GitHubIntake below; the server composes the sweep from it.
+Chargehand.Automation.SweepParts? sweepParts = null;
 var profilePath = Environment.GetEnvironmentVariable("CHARGEHAND_PROFILE") ?? "profiles/local.json";
 if (argv.Count >= 2 && argv[0] == "--profile")
 {
@@ -569,7 +571,7 @@ Chargehand.Modules.Forge.Api.IIntegrationHost? IntegrationHost(Chargehand.Config
 }
 
 // GitHub intake (ADR 0051): null unless the profile has automation.github. It reads and comments as the integrator's GitHub App; its state sits next to the run log.
-Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? drivenRun)
+Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? drivenRun, IWorkerRuntime sortingRuntime)
 {
     if (profile.Automation?.Github is not { } github || profile.Driven is not { Integrator: { AppId: { } appId, PrivateKeySecret: { } privateKeySecret, InstallationId: var installationId } } driven)
     {
@@ -593,7 +595,19 @@ Chargehand.Automation.GitHubIntake? GitHubIntake(Chargehand.Driven.DrivenRun? dr
     foreach (var gap in Chargehand.Automation.GitHubIntake.MergeChainGaps(github, driven.Integrator, sourcesFile))
         Console.Error.WriteLine($"chargehand: warning: {gap}");
     var approver = new Chargehand.Modules.Handover.Api.Integrator(new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), new Chargehand.Modules.Forge.Api.GitHubIntegrationHost(api, tokens), driven.Integrator.CiFix, forge: driven.Forge);
-    return new Chargehand.Automation.GitHubIntake(github, new Chargehand.Automation.GitHubIntakeHost(api, tokens), runLog, new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones), state,
+    // The owner's subscription_hold_percent from the console reaches the next batch's gateway without a restart.
+    if (drivenRun is not null)
+        drivenRun.HoldPercentOverride = () => sourcesFile.Sweep.HoldPercent;
+    if (profile.Automation?.Sweep is { Enabled: true } && poolStore is null)
+        Console.Error.WriteLine("chargehand: warning: automation.sweep needs http.pool (the sweep queues ready issues there); the sweep is off");
+    var intakeHost = new Chargehand.Automation.GitHubIntakeHost(api, tokens);
+    var intakeHeads = new Chargehand.Automation.GitRepositoryHeads(Console.Error.WriteLine, clones);
+    var trusted = new HashSet<string>(github.AllowedAuthors ?? [], StringComparer.OrdinalIgnoreCase);
+    if (github.AppLogin is { Length: > 0 } appLogin)
+        trusted.Add(appLogin);
+    sweepParts = new Chargehand.Automation.SweepParts(intakeHost, intakeHeads, state, github.Repositories ?? new Dictionary<string, Chargehand.Modules.Intake.Api.AutomationRepository>(), trusted,
+        new Chargehand.Automation.ModelSweepSorter(sortingRuntime, Orchestrator.ParseModel(profile.IntakeModel)), profile.Automation?.Sweep ?? new Chargehand.Modules.Intake.Api.SweepSettings(), directory);
+    return new Chargehand.Automation.GitHubIntake(github, intakeHost, runLog, intakeHeads, state,
         integrator: new Chargehand.Modules.Handover.Api.IntegratorPolicy(driven.Integrator), sources: sourcesFile, clones: clones,
         subscriptionResetsAt: now => drivenRun?.RateLimitPauses(now) is { Count: > 0 } pauses ? pauses.Max(p => p.ResetsAt) : null,
         poolsRoomAt: drivenRun is null ? null : (path, ct) => drivenRun.PoolsRoomAtAsync(Chargehand.Automation.GitHubIntake.Preset, path, ct),
@@ -772,7 +786,7 @@ async Task<int> Serve()
         Conversations: http.Conversations, ConversationsDirectory: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "conversations"),
         ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator), Events: events, Warmer: CacheWarmerFor(events),
         Pool: http.Pool is { } pool ? pool with { Database = pool.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "pool.db") } : null),
-        orchestrator, runLog, drivenRun, GitHubIntake(drivenRun), Schedules(drivenRun), PhoneAnswers());
+        orchestrator, runLog, drivenRun, GitHubIntake(drivenRun, runtime), Schedules(drivenRun), PhoneAnswers(), sweepParts);
     await app.StartAsync(ct);
     Console.Error.WriteLine($"chargehand serve: {string.Join(", ", app.Urls)} (/v1/runs, MCP /v1/mcp{(http.Ui ? ", console /console/" : "")})");
     await app.WaitForShutdownAsync(ct);

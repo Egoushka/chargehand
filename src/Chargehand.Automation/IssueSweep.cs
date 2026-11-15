@@ -21,12 +21,15 @@ public sealed partial class IssueSweep(
     TimeProvider clock)
 {
     public const string CommentMarker = "<!-- chargehand-sweep -->";
+    public static string NewId() => $"sweep-{Guid.NewGuid():N}";
+
     public const string SplitMarker = "<!-- chargehand-split -->";
 
     /// <param name="trigger"><c>schedule</c> or <c>manual</c>.</param>
-    public async Task<SweepReport> RunAsync(string trigger, CancellationToken ct)
+    /// <param name="id">The id the caller already gave this sweep; null: a new one.</param>
+    public async Task<SweepReport> RunAsync(string trigger, CancellationToken ct, string? id = null)
     {
-        var id = $"sweep-{Guid.NewGuid():N}";
+        id ??= NewId();
         var started = clock.GetUtcNow();
         await EmitAsync(id, "chargehand.sweep.started", "started", w => w.WriteString("trigger", trigger), ct);
         var budget = new Budget(settings.MaxSortsPerSweep);

@@ -12,7 +12,7 @@ namespace Chargehand.Server;
 /// when it ends, its token use is reported and the worker is released so items enqueued into the scope meanwhile start a successor at the next tick. A batch stopped at the
 /// worker's token ceiling hands its items back with a resume card; any other end marks them done (with the status when it did not complete).</summary>
 internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, IReadOnlyDictionary<string, AutomationRepository>? repositories, Func<TaskPool> pool,
-    TaskPoolSettings settings, Action<string> log) : IPoolStarter
+    TaskPoolSettings settings, Action<string> log, PoolBreakerCheck? breaker = null) : IPoolStarter
 {
     /// <summary>The longest one-line title a pool batch gets; pull request titles are cut shorter anyway.</summary>
     public const int MaxTitle = 72;
@@ -56,6 +56,7 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
         }
         catch (IntakeException e)
         {
+            await NoteRefusalAsync(request.Scope.Repository, e.Message).ConfigureAwait(false);
             return e.Message;
         }
         var run = new RunRequest("request/v1", $"Pool: {request.Scope.Repository} {request.Scope.Area}.",
@@ -63,7 +64,11 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
             Driven: new RequestDriven([new DrivenTask(request.Worker, Goal: Goal(request), Size: LargestSize(request.Items), Title: Title(request))], MaxParallel: 1, MaxTokensTotal: settings.WorkerTokens));
         var started = await new RunServiceStarter(runs, account).StartAsync(run, false, ct).ConfigureAwait(false);
         if (started.RunId is not { } id)
-            return started.Refusal ?? "the run did not start";
+        {
+            var refusal = started.Refusal ?? "the run did not start";
+            await NoteRefusalAsync(request.Scope.Repository, refusal).ConfigureAwait(false);
+            return refusal;
+        }
         _ = Task.Run(() => FinishAsync(id, request.Worker, request.Items), CancellationToken.None);
         return null;
     }
@@ -99,6 +104,12 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
         return found;
     }
 
+    private async Task NoteRefusalAsync(string repository, string refusal)
+    {
+        if (breaker is not null)
+            await breaker.RefusedAsync(repository, refusal).ConfigureAwait(false);
+    }
+
     private async Task FinishAsync(string runId, string worker, IReadOnlyList<PoolItem> items)
     {
         var ct = CancellationToken.None;
@@ -120,8 +131,16 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
                 await target.DoneAsync([.. items.Select(i => i.Key)], $"failed: {maxHandOffs} workers in a row stopped at the token ceiling", ct).ConfigureAwait(false);
                 return;
             }
+            if (result?.Error?.Code == ErrorCode.CheckoutHasSecrets && breaker is not null)
+            {
+                // The repository's own configuration, not a failure of the work.
+                await breaker.RefusedAsync(items[0].Repository, result.Error.Message).ConfigureAwait(false);
+                await target.DoneAsync([.. items.Select(i => i.Key)], "failed: " + result.Error.Message, ct).ConfigureAwait(false);
+                return;
+            }
             var reason = result is null ? "failed: lost" : result.Status == ResultStatus.Completed ? null : "failed: " + result.Status.ToString().ToLowerInvariant();
             await target.DoneAsync([.. items.Select(i => i.Key)], reason, ct).ConfigureAwait(false);
+            breaker?.Finished(items[0].Repository, result is { Status: ResultStatus.Failed } && result.Error?.Code != ErrorCode.Cancelled);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

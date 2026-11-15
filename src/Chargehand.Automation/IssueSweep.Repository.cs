@@ -11,8 +11,6 @@ public sealed partial class IssueSweep
     // Four bytes a character at most: the pool refuses a body over 16 KiB.
     private const int MaxBodyChars = 4000;
 
-    private static readonly EventGrant Grant = new("orchestrator", "chargehand/orchestrator", [], ["*"]);
-
     [GeneratedRegex(@"\b(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\s+#(?<n>\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex Fixes();
 
@@ -179,34 +177,6 @@ public sealed partial class IssueSweep
         w.WriteEndArray();
     }
 
-    /// <summary>Appends one event; the log is a record of the sweep, so a refusal or a failed write never stops it.</summary>
-    private async Task EmitAsync(string sweepId, string type, string suffix, Action<Utf8JsonWriter> data, CancellationToken ct)
-    {
-        try
-        {
-            using var buffer = new MemoryStream();
-            using (var w = new Utf8JsonWriter(buffer))
-            {
-                w.WriteStartObject();
-                w.WriteString("specversion", "1.0");
-                w.WriteString("id", $"{sweepId}-{suffix}");
-                w.WriteString("source", Grant.Source);
-                w.WriteString("type", type);
-                w.WriteString("subject", $"sweep/{sweepId}");
-                w.WriteString("time", clock.GetUtcNow().UtcDateTime.ToString(Envelope.Format, CultureInfo.InvariantCulture));
-                w.WriteString("scope", "global");
-                w.WriteStartObject("data");
-                data(w);
-                w.WriteEndObject();
-                w.WriteEndObject();
-            }
-
-            using var doc = JsonDocument.Parse(buffer.ToArray());
-            var (stored, _) = Envelope.Check(doc.RootElement, Grant);
-            if (stored is not null) await events.AppendAsync([stored], ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-        }
-    }
+    private Task EmitAsync(string sweepId, string type, string suffix, Action<Utf8JsonWriter> data, CancellationToken ct) =>
+        SweepEvents.EmitAsync(events, clock, sweepId, type, suffix, data, ct);
 }
