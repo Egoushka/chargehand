@@ -71,6 +71,20 @@ public class BudgetHistoryTests
     }
 
     [Fact]
+    public void A_checkpoint_spend_stop_counts_at_what_it_spent()
+    {
+        var records = new List<LearningRecord>([.. Tasks(Repo, "M", 0.3m, 0.3m, 0.3m), Past(5.0m, outcome: LearningOutcome.Failed, stop: Governor.CheckpointSpend), Past(5.0m, outcome: LearningOutcome.Failed, stop: Governor.CheckpointSpend)]);
+
+        Assert.Equal(new BudgetChoice(5.0m, new BudgetSource("history", 5, 80, "repository")), Choose(Five, records));
+    }
+
+    [Fact]
+    public void A_history_budget_is_never_below_the_flat_budget()
+    {
+        Assert.Equal(new BudgetChoice(4m, new BudgetSource("flat")), Choose(Five, Tasks(Repo, "M", 0.5m, 0.5m, 0.5m, 0.5m, 0.5m)));
+    }
+
+    [Fact]
     public void Too_few_in_both_the_repository_and_all_repositories_falls_back_to_the_flat_budget()
     {
         var records = new List<LearningRecord>([.. Tasks(Repo, "M", 1, 2), .. Tasks("x/y", "M", 3, 4)]);
@@ -81,9 +95,9 @@ public class BudgetHistoryTests
     [Fact]
     public void Only_a_size_classs_own_tasks_count_and_no_size_means_M()
     {
-        var records = new List<LearningRecord>([.. Tasks(Repo, "S", 1, 1, 1, 1, 1), .. Tasks(Repo, "M", 7, 7, 7, 7, 7)]);
+        var records = new List<LearningRecord>([.. Tasks(Repo, "S", 2, 2, 2, 2, 2), .. Tasks(Repo, "M", 7, 7, 7, 7, 7)]);
 
-        Assert.Equal(new BudgetChoice(1m, new BudgetSource("history", 5, 80, "repository")), Choose(Five, records, size: "S"));
+        Assert.Equal(new BudgetChoice(2m, new BudgetSource("history", 5, 80, "repository")), Choose(Five, records, size: "S"));
         Assert.Equal(new BudgetChoice(7m, new BudgetSource("history", 5, 80, "repository")), Choose(Five, records, size: "M"));
         Assert.Equal(new BudgetChoice(7m, new BudgetSource("history", 5, 80, "repository")), Choose(Five, records, size: null));
         Assert.Equal(new BudgetSource("flat"), Choose(Five, records, size: "L").Source);
@@ -110,7 +124,7 @@ public class BudgetHistoryTests
             Past(90m, outcome: LearningOutcome.Failed, stop: "session_error"),
             Past(90m, outcome: LearningOutcome.Partial, stop: "turn_limit"),
             Past(90m, outcome: LearningOutcome.NeedsInput, stop: "needs_input"),
-            Past(90m, outcome: LearningOutcome.Partial, stop: "checkpoint_spend"),
+            Past(90m, outcome: LearningOutcome.Partial, stop: "checkpoint_stuck"),
         };
         Assert.Equal(new BudgetSource("flat"), Choose(Five, failed).Source);
 
@@ -143,10 +157,10 @@ public class BudgetHistoryTests
         Assert.Equal(10m, Choose(max, Tasks(Repo, "M", spends)).Usd);
 
         var defaults = new DrivenGovernor();
-        var four = Tasks(Repo, "M", [.. Enumerable.Repeat(2m, 4)]);
+        var four = Tasks(Repo, "M", [.. Enumerable.Repeat(5m, 4)]);
         Assert.Equal(new BudgetSource("flat"), Choose(defaults, four).Source);
         var five = new List<LearningRecord>([.. four, Past(10m, daysAgo: 59)]);
-        Assert.Equal(new BudgetChoice(2m, new BudgetSource("history", 5, 80, "repository")), Choose(defaults, five));
+        Assert.Equal(new BudgetChoice(5m, new BudgetSource("history", 5, 80, "repository")), Choose(defaults, five));
         var oneOutside = new List<LearningRecord>([.. four, Past(10m, daysAgo: 61)]);
         Assert.Equal(new BudgetSource("flat"), Choose(defaults, oneOutside).Source);
     }
@@ -177,12 +191,12 @@ public class BudgetHistoryTests
     public async Task A_task_is_held_to_the_budget_history_gives_its_size_class_and_the_session_and_the_record_say_where_it_came_from()
     {
         using var dir = new TempDir();
-        var store = await StoreWith(dir, [.. Recent("M", 1, 2, 3)]);
+        var store = await StoreWith(dir, [.. Recent("M", 5, 6, 7)]);
         using var rig = new DrivenRunTests.Rig(learning: store, governor: new DrivenGovernor(History: new DrivenGovernorHistory(MinTasks: 3)), outcomes: (_, _) => Done(2.5m));
 
         await rig.Run.RunAsync(One(), BatchId, Token, default);
 
-        var expected = new BudgetChoice(3m, new BudgetSource("history", 3, 80, "repository"));
+        var expected = new BudgetChoice(7m, new BudgetSource("history", 3, 80, "repository"));
         var session = rig.Volumes.Tasks.Single().Governor!;
         Assert.Equal((expected.Usd, expected.Source), (session.BudgetUsd, session.BudgetSource));
         var record = (await store.ReadAsync(default)).Select(e => e.Record).Single(r => r.BatchId == BatchId);
@@ -193,7 +207,7 @@ public class BudgetHistoryTests
     public async Task Every_session_of_a_continued_task_holds_the_same_budget()
     {
         using var dir = new TempDir();
-        var store = await StoreWith(dir, [.. Recent("M", 1, 2, 3)]);
+        var store = await StoreWith(dir, [.. Recent("M", 5, 6, 7)]);
         using var rig = new DrivenRunTests.Rig(learning: store, governor: new DrivenGovernor(History: new DrivenGovernorHistory(MinTasks: 3)),
             outcomes: (_, goal) => goal.Contains("Continuation ", StringComparison.Ordinal) ? Done(1m)
                 : new SessionOutcome(SessionStatus.Stalled, "turn_limit", 80, 1000, 200, 4000, null, 0, [], true, Commits: 3, UsdEstimate: 1m));
@@ -201,14 +215,14 @@ public class BudgetHistoryTests
         await rig.Run.RunAsync(One(), BatchId, Token, default);
 
         Assert.Equal(2, rig.Volumes.Tasks.Count);
-        Assert.All(rig.Volumes.Tasks, t => Assert.Equal((3m, new BudgetSource("history", 3, 80, "repository")), (t.Governor!.BudgetUsd, t.Governor.BudgetSource)));
+        Assert.All(rig.Volumes.Tasks, t => Assert.Equal((7m, new BudgetSource("history", 3, 80, "repository")), (t.Governor!.BudgetUsd, t.Governor.BudgetSource)));
     }
 
     [Fact]
     public async Task A_tasks_own_budget_beats_history_and_a_size_the_history_lacks_is_flat()
     {
         using var dir = new TempDir();
-        var store = await StoreWith(dir, [.. Recent("M", 1, 2, 3)]);
+        var store = await StoreWith(dir, [.. Recent("M", 5, 6, 7)]);
         using var rig = new DrivenRunTests.Rig(learning: store, governor: new DrivenGovernor(History: new DrivenGovernorHistory(MinTasks: 3)), outcomes: (_, _) => Done(1m));
 
         await rig.Run.RunAsync(One(new DrivenTask("t1", Goal: "one", BudgetUsd: 2.5m)), "run-b1", Token, default);
@@ -222,12 +236,12 @@ public class BudgetHistoryTests
     public async Task Tasks_of_another_repository_feed_a_budget_when_this_one_has_too_few()
     {
         using var dir = new TempDir();
-        var store = await StoreWith(dir, [.. Recent("M", 1, 2, 3).Select(r => r with { Repository = "x/y" })]);
+        var store = await StoreWith(dir, [.. Recent("M", 5, 6, 7).Select(r => r with { Repository = "x/y" })]);
         using var rig = new DrivenRunTests.Rig(learning: store, governor: new DrivenGovernor(History: new DrivenGovernorHistory(MinTasks: 3)), outcomes: (_, _) => Done(1m));
 
         await rig.Run.RunAsync(One(), BatchId, Token, default);
 
-        Assert.Equal((3m, new BudgetSource("history", 3, 80, "all")), (rig.Volumes.Tasks[0].Governor!.BudgetUsd, rig.Volumes.Tasks[0].Governor!.BudgetSource));
+        Assert.Equal((7m, new BudgetSource("history", 3, 80, "all")), (rig.Volumes.Tasks[0].Governor!.BudgetUsd, rig.Volumes.Tasks[0].Governor!.BudgetSource));
     }
 
     [Fact]

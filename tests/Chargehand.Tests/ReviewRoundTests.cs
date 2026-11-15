@@ -434,4 +434,42 @@ public class ReviewRoundTests
         Assert.Equal(2, rig.Starter.Started.Count);
         Assert.Empty(rig.State.Pending);
     }
+
+    private static async Task<IntakeRig> ReviewedPull(double confidence)
+    {
+        var rig = await WithPullRequest(Settings() with { ReviewPulls = true, AppLogin = "chargehand[bot]" });
+        const string sha = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        rig.OpenPull(9, sha, author: "chargehand[bot]");
+        await rig.Poll();
+        var review = rig.Starter.Started.Count - 1;
+        rig.Log.Finish($"run-{review + 1}", ResultStatus.Completed, "One issue.", [new Claim("The loop never ends.", ["e1"], confidence)], [new Evidence("e1", EvidenceKind.File, "src/Retry.cs:12")]);
+        await rig.Poll();
+        return rig;
+    }
+
+    [Fact]
+    public async Task Blocking_finding_starts_one_review_round()
+    {
+        using var rig = await ReviewedPull(0.85);
+        await rig.Poll();
+
+        var round = rig.Starter.Started.Last();
+        Assert.True(Valid(round));
+        var task = Assert.Single(round.Driven!.Tasks);
+        Assert.Equal(new ContinueFrom("run-1", "issue-7"), task.ContinueFrom);
+        Assert.Contains("The loop never ends.", Assert.Single(task.Answers!));
+        Assert.DoesNotContain("@chargehand", task.Answers![0], StringComparison.Ordinal);
+        Assert.StartsWith("comment by chargehand's own review", task.Answers![0], StringComparison.Ordinal);
+        Assert.Single(rig.GitHub.Posted, p => p.Body.Contains("chargehand-review-round attempt=1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_finding_at_0_7_is_not_blocking()
+    {
+        using var rig = await ReviewedPull(0.7);
+        await rig.Poll();
+
+        Assert.DoesNotContain(rig.GitHub.Posted, p => p.Body.Contains("chargehand-review-round", StringComparison.Ordinal));
+        Assert.Equal(2, rig.Starter.Started.Count);
+    }
 }

@@ -44,8 +44,8 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         return BaseChecksFail is not null ? throw BaseChecksFail : Task.FromResult(BaseChecks);
     }
 
-    public static PrSnapshot Snapshot(string head = "aaaaaaa1", bool draft = true, string status = "DRAFT", bool autoMerge = false, bool merged = false, IReadOnlyList<CheckStatus>? checks = null) =>
-        new("PR_node", 7, head, "main", draft, merged, false, status, autoMerge, checks ?? [], []);
+    public static PrSnapshot Snapshot(string head = "aaaaaaa1", bool draft = true, string status = "DRAFT", bool autoMerge = false, bool merged = false, IReadOnlyList<CheckStatus>? checks = null, string? autoMergeBy = null) =>
+        new("PR_node", 7, head, "main", draft, merged, false, status, autoMerge, checks ?? [], [], autoMergeBy);
 
     /// <summary>The paths the pull request changes; not in <see cref="Calls"/>, like the checks gate.</summary>
     public IReadOnlyList<string> ChangedPaths { get; set; } = ["src/App.cs"];
@@ -104,9 +104,29 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         return Task.CompletedTask;
     }
 
+    /// <summary>The labels put on the pull request; not in <see cref="Calls"/>.</summary>
+    public List<string> Labels { get; } = [];
+
+    public Task DisableAutoMergeAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
+    {
+        Calls.Add("disable-auto-merge");
+        Current = Current with { AutoMerge = false };
+        return Task.CompletedTask;
+    }
+
+    public Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct)
+    {
+        Labels.Add(label);
+        return Task.CompletedTask;
+    }
+
+    public Exception? CommentFails { get; set; }
+
     public Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct)
     {
         Calls.Add("comment");
+        if (CommentFails is not null)
+            throw CommentFails;
         Comments.Add(body);
         return Task.CompletedTask;
     }

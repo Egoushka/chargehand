@@ -13,6 +13,7 @@ import type { OverviewBody } from '../api/overview';
 import type { ConflictsBody, PullsBody, TrainsBody } from '../api/pulls';
 import type { RepositoriesBody } from '../api/repositories';
 import type { RouterBody } from '../api/router';
+import type { SweepBody, SweepSettingsBody, SweepSettingsChange } from '../api/sweep';
 import type { SystemBody } from '../api/system';
 import type { ThreadCard } from '../api/threads';
 import type { LearnReport, Me, RunSummary } from '../api/types';
@@ -21,6 +22,7 @@ import * as fx from './fixtures';
 import * as rx from './fixtures-runs';
 import { analyticsBody, costBody, learnReport } from './learning';
 import { routerBody } from './router';
+import * as sw from './sweep';
 
 export interface Scenario {
   key?: string;
@@ -43,6 +45,10 @@ export interface Scenario {
   intake?: IntakeBody;
   intakeSources?: IntakeSourcesBody;
   intakeLimits?: IntakeLimitsBody;
+  sweep?: SweepBody;
+  sweepSettings?: SweepSettingsBody;
+  /** The lines `PUT /v1/sweep/settings` refuses with (400): nothing is saved. */
+  sweepRefusal?: string[];
   conflicts?: ConflictsBody;
   train?: TrainsBody;
   repositories?: RepositoriesBody;
@@ -84,6 +90,7 @@ export function serveApi(scenario: Scenario = {}) {
   const calls: Call[] = [];
   let sources: IntakeSourcesBody | undefined;
   let limits: IntakeLimitsBody | undefined;
+  let sweepSettings: SweepSettingsBody | undefined;
   let dailyLimit: number | null = 15;
   let approvalLimit: number | null = 5;
   const mock = vi.fn((input: string, init?: RequestInit) => {
@@ -183,6 +190,21 @@ export function serveApi(scenario: Scenario = {}) {
       limits = limits ?? scenario.intakeLimits ?? adm.intakeLimits();
       if (method === 'PUT') limits = adm.limitsSet(limits, body as LimitsChange);
       return Promise.resolve(json(limits));
+    }
+    if (path === '/v1/sweep')
+      return Promise.resolve(
+        method === 'POST'
+          ? json({ id: sw.SWEEP_ID }, 202)
+          : json(scenario.sweep ?? sw.sweep({}, now)),
+      );
+    if (path === '/v1/sweep/settings') {
+      sweepSettings = sweepSettings ?? scenario.sweepSettings ?? sw.sweepSettings();
+      if (method === 'PUT') {
+        if (scenario.sweepRefusal)
+          return Promise.resolve(json({ errors: scenario.sweepRefusal }, 400));
+        sweepSettings = sw.sweepSettingsSet(sweepSettings, body as SweepSettingsChange);
+      }
+      return Promise.resolve(json(sweepSettings));
     }
     if (path === '/v1/limits/daily-warning') {
       if (method === 'PUT') dailyLimit = (body as { usd: number | null }).usd;

@@ -10,7 +10,7 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="LocalOnly">The repository is local-only (ADR 0069): the integrator and the CI fixer do nothing and call no forge.</param>
 public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal, string? TestIntegrity = null, bool LocalOnly = false);
 
-public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAttention, Failed }
+public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAttention, Failed, AwaitingReview }
 
 /// <param name="Detail">One line for the task outcome and the run event.</param>
 public sealed record IntegrationResult(IntegrationAction Action, string Detail);
@@ -55,7 +55,9 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
     /// <summary>The sentence the pull request body says about what happens next, for a repository that is opted in; null where the draft-only text is still true (off, or a partial result).</summary>
     public string? Describe(RemoteRepository repository, bool partial) => partial ? null : policy.Resolve(repository) switch
     {
-        IntegrationMode.Merge => $"Opened by chargehand as a draft. This repository lets chargehand mark it ready and enable auto-merge, so {host.Name} merges it only once every required check and rule passes; chargehand never bypasses a rule."
+        IntegrationMode.Merge => (Reviewed(repository)
+                ? "Opened by chargehand as a draft. This repository lets chargehand mark it ready and merge it after chargehand's review of its head has no blocking finding, once every required check is green; chargehand never bypasses a rule."
+                : $"Opened by chargehand as a draft. This repository lets chargehand mark it ready and enable auto-merge, so {host.Name} merges it only once every required check and rule passes; chargehand never bypasses a rule.")
             + (CiFix.Attempts > 0 ? $" If a required check fails, chargehand makes up to {CiFix.Attempts.ToString(CultureInfo.InvariantCulture)} attempts to fix it on this branch." : ""),
         IntegrationMode.Ask => "Opened by chargehand as a draft. This repository asks first: chargehand marks it ready for review and does not merge it.",
         _ => null,
@@ -90,13 +92,17 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
                     return stopped;
                 pr = moved!;
             }
+            // The marker that keeps a flagged pull request from merging goes up before it is marked ready: a comment that fails leaves a draft.
+            var asked = mode == IntegrationMode.Ask ? await AskNoticeAsync(target, pr, gate, migration, ct) : null;
             if (pr.IsDraft)
             {
                 await host.MarkReadyAsync(target.Repository, pr.NodeId, ct);
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, migration, report, ct) : await MergeAsync(target, pr, report, ct);
+            if (asked is not null)
+                return Say(report, IntegrationAction.Asked, $"marked ready; {asked}");
+            return await MergeStepAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
@@ -133,55 +139,31 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
         return (null, moved);
     }
 
-    private async Task<IntegrationResult> AskAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, string? migration, Action<string> report, CancellationToken ct)
+    /// <summary>Post the comment that says why a pull request is not merged; the text after "marked ready; " in the result.</summary>
+    private async Task<string> AskNoticeAsync(IntegrationTarget target, PrSnapshot pr, ChecksGate gate, string? migration, CancellationToken ct)
     {
         if (migration is not null)
         {
-            await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand marked this pull request ready but does not merge it: it adds a database migration ({migration}). The repository owner merges it.", ct);
-            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because it adds a database migration ({migration})");
+            await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand hands this pull request to you and does not merge it: it adds a database migration ({migration}). The repository owner merges it.", ct);
+            await NeedsYouAsync(target, ct);
+            return $"not merged because it adds a database migration ({migration})";
         }
         if (gate != ChecksGate.Required)
         {
             var reason = gate == ChecksGate.None
                 ? $"its base branch {pr.BaseBranch} has no rule that requires a status check, so {host.Name} would merge it before CI runs"
                 : $"chargehand could not read the rules of its base branch {pr.BaseBranch}, so it cannot tell whether {host.Name} would wait for CI";
-            await CommentOnceAsync(target, pr, NoChecksMarker, $"chargehand marked this pull request ready but does not merge it: {reason}. Add a rule that requires your CI checks on {pr.BaseBranch} and chargehand will merge the next one; a person decides about this one.", ct);
+            await CommentOnceAsync(target, pr, NoChecksMarker, $"chargehand hands this pull request to you and does not merge it: {reason}. Add a rule that requires your CI checks on {pr.BaseBranch} and chargehand will merge the next one; a person decides about this one.", ct);
             Console.Error.WriteLine($"chargehand: warning: {target.Repository.Owner}/{target.Repository.Name} is set to merge, but {reason}; treated as ask");
-            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because {reason} (treated as ask)");
+            return $"not merged because {reason} (treated as ask)";
         }
         if (target.TestIntegrity is { } why)
         {
-            await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
-            return Say(report, IntegrationAction.Asked, $"marked ready; not merged because of test integrity ({why})");
+            await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand hands this pull request to you and does not merge it: {why}. A person decides.", ct);
+            return $"not merged because of test integrity ({why})";
         }
-        await CommentOnceAsync(target, pr, AskMarker, "chargehand marked this pull request ready. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
-        return Say(report, IntegrationAction.Asked, "marked ready; the repository's policy is ask, so it is left for a person to merge");
-    }
-
-    private async Task<IntegrationResult> MergeAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
-    {
-        if (pr.MergeStatus == "DIRTY")
-        {
-            await CommentOnceAsync(target, pr, ConflictMarker, "This pull request conflicts with its base branch, so chargehand is not merging it; a person needs to resolve it.", ct);
-            return Say(report, IntegrationAction.NeedsAttention, "the pull request conflicts with its base; not merged");
-        }
-        if (pr.AutoMerge)
-            return Say(report, IntegrationAction.AutoMergeEnabled, "auto-merge was already enabled");
-        if (pr.MergeStatus == "CLEAN")
-            return await MergeNowAsync(target, pr.HeadSha, report, ct);
-        try
-        {
-            await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
-        }
-        catch (IntegrationException)
-        {
-            // GitHub refuses auto-merge on a pull request that is mergeable already; then the merge itself goes through the same rules.
-            var fresh = await host.GetAsync(target.Repository, target.Number, ct);
-            if (fresh.IsDraft || fresh.MergeStatus is not ("CLEAN" or "UNSTABLE"))
-                throw;
-            return await MergeNowAsync(target, fresh.HeadSha, report, ct);
-        }
-        return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; {host.Name} merges once the required checks pass");
+        await CommentOnceAsync(target, pr, AskMarker, "chargehand hands this pull request to you. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
+        return "the repository's policy is ask, so it is left for a person to merge";
     }
 
     /// <summary>Watch the required checks of a pull request that <see cref="IntegrateAsync"/> handled. When some fail and every required check has finished, <paramref name="fix"/> runs a session on the branch,
@@ -312,7 +294,7 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
     {
         if (mode == IntegrationMode.Ask)
             return Say(report, IntegrationAction.Asked, "required checks passed; left for a person to merge");
-        if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Asked or IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
+        if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Asked or IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention or IntegrationAction.AwaitingReview } done)
             return done;
         return null;
     }

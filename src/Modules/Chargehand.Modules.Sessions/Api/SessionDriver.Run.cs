@@ -37,7 +37,7 @@ public static partial class SessionDriver
             try
             {
                 // In enforce mode the strongest decision (a stop over a checkpoint) ends the session if nothing else has; only that one is logged as acted on.
-                if (_task.Governor is { Mode: GovernorMode.Enforce } && made.Where(d => Governor.StopReason(d) is not null).OrderByDescending(d => d.Action).FirstOrDefault() is { } acting
+                if (_task.Governor is { Mode: GovernorMode.Enforce } && made.Where(d => d.Mode == GovernorMode.Enforce && Governor.StopReason(d) is not null).OrderByDescending(d => d.Action).FirstOrDefault() is { } acting
                     && _stoppedBy.Set(SessionStatus.Stalled, Governor.StopReason(acting)!))
                 {
                     made = [.. made.Select(d => d == acting ? d with { Acted = true } : d)];

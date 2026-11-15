@@ -11,8 +11,9 @@ namespace Chargehand.Modules.Intake.Api;
 /// <param name="Schedules">Work that runs on a clock within a monthly cap (ADR 0068); null: none.</param>
 /// <param name="Account">An account of <c>http.accounts</c> that every automated start (GitHub, schedules) is charged to and admitted as (ADR 0076): its caps, budget clamps, concurrency
 /// limit and opt-in forecast pause apply. Null: they run as the owner, with no account caps.</param>
+/// <param name="Sweep">The issue sweep (automation.sweep); null: off.</param>
 /// <param name="Notify">Where a driven task's question or partial stop is sent with its answer options (ADR 0077); null: nowhere, it waits in the inbox.</param>
-public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, string? Account = null, AutomationNotify? Notify = null)
+public sealed record AutomationSettings(AutomationGitHub? Github = null, AutomationSchedules? Schedules = null, string? Account = null, AutomationNotify? Notify = null, SweepSettings? Sweep = null)
 {
     /// <param name="drivenEnabled">Whether <c>driven.enabled</c> is set.</param>
     public void Validate(bool drivenEnabled, DrivenIntegrator? integrator)
@@ -20,6 +21,7 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
         Github?.Validate(drivenEnabled, integrator);
         Schedules?.Validate(drivenEnabled);
         Notify?.Validate(drivenEnabled);
+        Sweep?.Validate(Github is not null);
     }
 
     /// <summary>The keys the profile sets that are accepted and ignored, one line each, for the server to write once at startup.</summary>
@@ -58,10 +60,12 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// these labels waits ahead of one with a label later in the list, or none; one with more than one of them is not ranked by it, the same as having none. Checked before source, size and age.</param>
 /// <param name="Subgate">Subgate's admission before a start on the subscription: a hold queues the start (reason <c>subscription share</c>); null: off (default), and unreachable means the start goes on.</param>
 /// <param name="Harvest">The quota harvester (issue #792): issues with its label wait for the end of a subscription window that still has quota left; null: off, and they start like any other.</param>
+/// <param name="ReviewBlockConfidence">A review finding at or above this confidence blocks a merge and starts a review round (default 0.8); a review with none is the approval.</param>
+/// <param name="AppLogin">The integrator App's login (<c>&lt;slug&gt;[bot]</c>), whose pull requests <paramref name="ReviewPulls"/> also reviews; left out, it is read from the integrator's <c>app_slug</c>.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
     bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false, int MaxStartsPerHour = 30, int BreakerCooldownMinutes = 120,
-    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null, AutomationSubgate? Subgate = null)
+    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null, decimal ReviewBlockConfidence = 0.8m, string? AppLogin = null, AutomationSubgate? Subgate = null)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
@@ -130,6 +134,7 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
         if (MaxStartsPerHour is < 0 or > 1000) yield return "max_starts_per_hour must be 0 to 1000";
         if (BreakerCooldownMinutes is < 1 or > 10080) yield return "breaker_cooldown_minutes must be 1 to 10080";
         if (MaxReviewBacklog is < 0 or > 50) yield return "max_review_backlog must be 0 to 50";
+        if (ReviewBlockConfidence is < 0 or > 1) yield return "review_block_confidence must be 0 to 1";
         if (MaxReviewRounds is < 0 or > DrivenCiFix.AttemptCap) yield return $"max_review_rounds must be 0 to {DrivenCiFix.AttemptCap}";
     }
 
@@ -164,3 +169,50 @@ public sealed record AutomationHarvest(string Label = "priority:low", int LeadMi
 
 /// <param name="Path">The checkout the server reads the base commit from and the batch works from (ADR 0023); its <c>origin</c> is the repository.</param>
 public sealed record AutomationRepository(string Path);
+
+/// <summary>The issue sweep (see the issue-sweep design). Off unless <paramref name="Enabled"/>.</summary>
+/// <param name="At">Clock times of day (<c>HH:mm</c>) in <paramref name="TimeZone"/>; null: the default times.</param>
+/// <param name="Days">The days a scheduled sweep runs; null: every day.</param>
+/// <param name="MaxSortsPerSweep">The most model calls one sweep makes, across all repositories; cached verdicts cost none.</param>
+public sealed record SweepSettings(bool Enabled = false, IReadOnlyList<string>? At = null, IReadOnlyList<DayOfWeek>? Days = null, string TimeZone = "UTC", int MaxSortsPerSweep = 200)
+{
+    public static readonly IReadOnlyList<string> DefaultAt = ["08:00", "15:00", "20:00"];
+
+    public IReadOnlyList<string> Times => At ?? DefaultAt;
+
+    public IReadOnlyList<DayOfWeek> RunDays => Days ?? Enum.GetValues<DayOfWeek>();
+
+    /// <param name="githubSet">Whether <c>automation.github</c> is set: the sweep reads its repositories.</param>
+    internal void Validate(bool githubSet)
+    {
+        List<string> problems = [];
+        if (Enabled && !githubSet)
+            problems.Add("needs automation.github, whose repositories it sweeps");
+        foreach (var time in Times)
+            if (!TimeOnly.TryParseExact(time, "HH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
+                problems.Add($"at entry '{time}' must be HH:mm");
+        if (Times.Count == 0)
+            problems.Add("at must list at least one time");
+        foreach (var day in RunDays)
+            if (!Enum.IsDefined(day)) problems.Add($"days entry {(int)day} is not a day of the week");
+        if (!KnownZone(TimeZone))
+            problems.Add($"time_zone '{TimeZone}' is not a known time zone");
+        if (MaxSortsPerSweep is < 1 or > 5000)
+            problems.Add("max_sorts_per_sweep must be 1-5000");
+        if (problems.Count > 0)
+            throw new ChargehandException(ErrorCode.InvalidRequest, $"automation.sweep: {string.Join("; ", problems)}", "Fix automation.sweep in the profile.");
+    }
+
+    public static bool KnownZone(string id)
+    {
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(id);
+            return true;
+        }
+        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return false;
+        }
+    }
+}

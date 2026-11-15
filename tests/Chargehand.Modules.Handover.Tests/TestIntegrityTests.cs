@@ -131,8 +131,24 @@ public class TestIntegrityTests
     {
         var host = new FakeIntegrationHost { StatusAfterReady = "CLEAN" };
 
-        var result = await Make(host).IntegrateAsync(Flagged() with { TestIntegrity = null }, _ => { }, default);
+        var target = Flagged() with { TestIntegrity = null };
+
+        await Make(host).IntegrateAsync(target, _ => { }, default);
+        host.Current = host.Current with { Checks = [new("ci", true, CheckOutcome.Passed, 1)] };
+        var result = await Make(host).ApproveAsync(target, "aaaaaaa1", default);
 
         Assert.Equal(IntegrationAction.Merged, result.Action);
+    }
+
+    [Fact]
+    public async Task A_marker_that_cannot_be_posted_leaves_the_pull_request_a_draft()
+    {
+        var host = new FakeIntegrationHost { CommentFails = new IntegrationException("GitHub answered 500") };
+        var target = new IntegrationTarget(new RemoteRepository("o", "r"), 7, "chargehand/run1", false, "Add a retry", "the tests changed");
+
+        var result = await new Integrator(new IntegratorPolicy(new DrivenIntegrator(1, 2, "k", new Dictionary<string, string> { ["o/r"] = "merge" }, null)), host, delay: (_, _) => Task.CompletedTask).IntegrateAsync(target, _ => { }, default);
+
+        Assert.Equal(IntegrationAction.Failed, result.Action);
+        Assert.DoesNotContain("ready", host.Calls);
     }
 }

@@ -14,6 +14,7 @@ public sealed class IntakeSources
     private readonly HashSet<string> _reviewsOff = new(StringComparer.OrdinalIgnoreCase);
     private decimal? _reviewBudget;
     private Limits _limits = new();
+    private SweepOverrides _sweep = new();
     private readonly Lock _lock = new();
 
     public IntakeSources()
@@ -27,12 +28,55 @@ public sealed class IntakeSources
         _reviewsOff.UnionWith(stored.ReviewsOff ?? []);
         _reviewBudget = stored.ReviewBudgetUsd;
         _limits = stored.Limits ?? new Limits();
+        _sweep = stored.Sweep ?? new SweepOverrides();
     }
 
-    private sealed record Stored(List<string>? Off, List<string>? ReviewsOff = null, decimal? ReviewBudgetUsd = null, Limits? Limits = null);
+    private sealed record Stored(List<string>? Off, List<string>? ReviewsOff = null, decimal? ReviewBudgetUsd = null, Limits? Limits = null, SweepOverrides? Sweep = null);
 
     /// <summary>The owner's overrides of the profile's intake caps (null: the profile's own), and a switch that holds every new start.</summary>
     public sealed record Limits(int? MaxConcurrent = null, int? MaxReviewRounds = null, decimal? MaxUsdTotal = null, bool Paused = false);
+
+    /// <summary>The owner's overrides of the sweep (null: the profile's own). <paramref name="Repositories"/> maps a repository to its sweep switch; one not listed follows the profile (on).
+    /// <paramref name="HoldPercent"/> is <c>subscription_hold_percent</c>, read when a batch's gateway is built.</summary>
+    public sealed record SweepOverrides(bool? Enabled = null, List<string>? At = null, List<DayOfWeek>? Days = null, Dictionary<string, bool>? Repositories = null, decimal? HoldPercent = null);
+
+    public SweepOverrides Sweep
+    {
+        get
+        {
+            lock (_lock)
+                return _sweep;
+        }
+    }
+
+    /// <returns>Whether anything changed.</returns>
+    public bool SetSweep(SweepOverrides sweep)
+    {
+        lock (_lock)
+        {
+            if (SameSweep(_sweep, sweep))
+                return false;
+            var previous = _sweep;
+            _sweep = sweep;
+            try
+            {
+                Save();
+            }
+            catch
+            {
+                // A value that did not reach the file is not in force either: the console says the save failed.
+                _sweep = previous;
+                throw;
+            }
+            return true;
+        }
+    }
+
+    public bool SweepOn(string repository) => Sweep.Repositories?.GetValueOrDefault(repository, true) ?? true;
+
+    private static bool SameSweep(SweepOverrides a, SweepOverrides b) =>
+        a.Enabled == b.Enabled && a.HoldPercent == b.HoldPercent && (a.At ?? []).SequenceEqual(b.At ?? []) && (a.Days ?? []).SequenceEqual(b.Days ?? []) && (a.At is null) == (b.At is null) && (a.Days is null) == (b.Days is null)
+        && (a.Repositories ?? []).OrderBy(r => r.Key).SequenceEqual((b.Repositories ?? []).OrderBy(r => r.Key));
 
     public Limits Current
     {
@@ -143,7 +187,7 @@ public sealed class IntakeSources
             return;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         var temp = $"{_path}.tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(new Stored([.. _off.Order(StringComparer.OrdinalIgnoreCase)], [.. _reviewsOff.Order(StringComparer.OrdinalIgnoreCase)], _reviewBudget, _limits), Json));
+        File.WriteAllText(temp, JsonSerializer.Serialize(new Stored([.. _off.Order(StringComparer.OrdinalIgnoreCase)], [.. _reviewsOff.Order(StringComparer.OrdinalIgnoreCase)], _reviewBudget, _limits, _sweep), Json));
         File.Move(temp, _path, overwrite: true);
     }
 }

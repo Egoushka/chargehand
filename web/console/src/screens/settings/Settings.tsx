@@ -15,6 +15,7 @@ import {
   problemWith,
   RANGES,
 } from './model';
+import { SweepSettings } from './SweepSettings';
 
 /** The owner's intake caps and pause switch: set here, they win over the profile at intake's next poll, with no restart. */
 export function Settings() {
@@ -28,8 +29,8 @@ export function Settings() {
         <div>
           <h1 className="screen__title">Settings</h1>
           <p className="screen__sub">
-            What intake may start. A box left empty uses the profile's value; a change applies at
-            the next poll.
+            What intake and the sweep may start. A box left empty uses the profile's value; a change
+            applies at the next poll.
           </p>
         </div>
       </div>
@@ -53,6 +54,7 @@ export function Settings() {
       ) : (
         <LimitsForm key={JSON.stringify(limits.data)} limits={limits.data} />
       )}
+      <SweepSettings allowed={gate.allowed} />
     </div>
   );
 }

@@ -27,7 +27,7 @@ public class IntegratorChecksGateTests
         Assert.Equal(IntegrationAction.Asked, result.Action);
         Assert.Contains(why, result.Detail);
         Assert.Contains("treated as ask", result.Detail);
-        Assert.Equal(["get", "ready", "get", "comment"], host.Calls);
+        Assert.Equal(["get", "comment", "ready", "get"], host.Calls);
         Assert.Contains("no-required-checks", Assert.Single(host.Comments));
     }
 
@@ -43,14 +43,16 @@ public class IntegratorChecksGateTests
     }
 
     [Fact]
-    public async Task A_merge_repository_with_required_checks_still_enables_auto_merge()
+    public async Task A_merge_repository_with_required_checks_still_merges_after_a_clean_review()
     {
         var host = new FakeIntegrationHost { Gate = ChecksGate.Required };
 
-        var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        host.Current = host.Current with { Checks = [new("ci", true, CheckOutcome.Passed, 1)] };
+        var result = await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);
 
-        Assert.Equal(IntegrationAction.AutoMergeEnabled, result.Action);
-        Assert.Contains("auto-merge aaaaaaa1", host.Calls);
+        Assert.Equal(IntegrationAction.Merged, result.Action);
+        Assert.Contains("merge aaaaaaa1", host.Calls);
     }
 
     [Fact]

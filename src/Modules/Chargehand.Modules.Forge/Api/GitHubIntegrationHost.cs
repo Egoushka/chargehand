@@ -18,9 +18,9 @@ public sealed record CheckStatus(string Name, bool Required, CheckOutcome Outcom
 
 /// <param name="NodeId">The host's own handle for the pull request, which the ready and auto-merge calls take: GraphQL's id on GitHub, the project path and iid (<c>group/project!7</c>) on GitLab.</param>
 /// <param name="MergeStatus">GitHub's <c>mergeStateStatus</c>: CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, HAS_HOOKS, UNSTABLE or UNKNOWN. A forge that names its states otherwise maps them onto these.</param>
-/// <param name="Comments">The bodies of the latest comments, for the markers chargehand leaves.</param>
+/// <param name="Comments">The bodies of the latest comments, for the markers chargehand leaves. <c>AutoMergeBy</c>: who armed auto-merge; null when none is, or the forge does not say.</param>
 public sealed record PrSnapshot(string NodeId, int Number, string HeadSha, string BaseBranch, bool IsDraft, bool Merged, bool Closed, string MergeStatus, bool AutoMerge,
-    IReadOnlyList<CheckStatus> Checks, IReadOnlyList<string> Comments);
+    IReadOnlyList<CheckStatus> Checks, IReadOnlyList<string> Comments, string? AutoMergeBy = null);
 
 /// <summary>What the integrator does on a forge (ADR 0046), each call as the GitHub App (on GitLab, with the forge token). Every merge is pinned to a head commit and goes through the repository's rules:
 /// there is no call here that bypasses one. It is a different interface from <see cref="IPullRequests"/>, which still opens drafts and nothing else; <see cref="IForge"/> joins them.</summary>
@@ -78,7 +78,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
     private const int FilesPerPage = 100;
     private const string StateQuery = """
         query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){
-          id number state isDraft merged headRefOid baseRefName mergeStateStatus autoMergeRequest{enabledAt}
+          id number state isDraft merged headRefOid baseRefName mergeStateStatus autoMergeRequest{enabledAt enabledBy{login}}
           comments(last:50){nodes{body}}
           commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
             __typename
@@ -109,7 +109,7 @@ public sealed partial class GitHubIntegrationHost(HttpClient http, IInstallation
             return new PrSnapshot(pr.GetProperty("id").GetString()!, pr.GetProperty("number").GetInt32(), pr.GetProperty("headRefOid").GetString()!, pr.GetProperty("baseRefName").GetString()!,
                 pr.GetProperty("isDraft").GetBoolean(), pr.GetProperty("merged").GetBoolean(), state == "CLOSED", pr.GetProperty("mergeStateStatus").GetString() ?? "UNKNOWN",
                 pr.GetProperty("autoMergeRequest").ValueKind == JsonValueKind.Object, checks,
-                [.. pr.GetProperty("comments").GetProperty("nodes").EnumerateArray().Select(c => c.GetProperty("body").GetString() ?? "")]);
+                [.. pr.GetProperty("comments").GetProperty("nodes").EnumerateArray().Select(c => c.GetProperty("body").GetString() ?? "")], EnabledBy(pr.GetProperty("autoMergeRequest")));
         }
         catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or JsonException or FormatException)
         {

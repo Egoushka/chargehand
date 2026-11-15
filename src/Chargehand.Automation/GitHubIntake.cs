@@ -19,7 +19,7 @@ namespace Chargehand.Automation;
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
     IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null,
     Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<string, CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null,
-    Func<CancellationToken, Task<DateTimeOffset?>>? subgateHoldUntil = null)
+    Func<string, int, CancellationToken, Task<bool>>? pooled = null, Integrator? approver = null, Func<CancellationToken, Task<DateTimeOffset?>>? subgateHoldUntil = null)
 {
     public const string Preset = "driven";
 
@@ -177,8 +177,10 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _backlog.NewPoll();
         _overlap.NewPoll();
         await ReportEndedAsync(ct);
-        await _reviews.ReportEndedAsync(ct);
+        await _reviews.ReportEndedAsync(QueueReviewRoundAsync, ct);
         _watched = await WatchAsync(ct);
+        foreach (var name in _watched.Keys.Where(Sources.IsOn).ToList())
+            await ApproveReviewedAsync(name, ct);
         LogPoll(_watched.Keys.Count(Sources.IsOn), state.Tasks.Count(t => t.Phase == IntakePhase.Running));
         foreach (var (name, watched) in _watched)
         {
@@ -286,7 +288,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 }, _ => { }));
                 continue;
             }
-            candidates.Add(NewIssueCandidate(key, issue.Labels, ct2 => StartAsync(key, name, repository, issue, null, null, starter, ct2),
+            candidates.Add(NewIssueCandidate(key, issue.Labels, async ct2 => await PooledAsync(key, name, issue.Number, ct2) ?? await StartAsync(key, name, repository, issue, null, null, starter, ct2),
                 outcome => { if (outcome != Outcome.Deferred) SettleLabel(seen, issue.UpdatedAt); }));
         }
     }
@@ -364,7 +366,17 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
                 Log(key, "ignored", "review_rounds_off", comment.Author);
             return null;
         }
-        return NewIssueCandidate(key, issue.Labels, ct2 => StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct2), _ => { });
+        return NewIssueCandidate(key, issue.Labels, async ct2 => await PooledAsync(key, name, issue.Number, ct2) ?? await StartAsync(key, name, repository, issue, comment.Body, comment.Author, starter, ct2), _ => { });
+    }
+
+    /// <summary>Settled when the sweep already queued the issue in the task pool: a new task here would do the same work twice. Null: no open pool item, the start goes on.</summary>
+    private async Task<Outcome?> PooledAsync(string key, string name, int issue, CancellationToken ct)
+    {
+        if (pooled is null || !await pooled(name, issue, ct))
+            return null;
+        state.Handled.Add(key);
+        _info($"intake: {key}: skipped: {name}#{issue.ToString(CultureInfo.InvariantCulture)} has an open item in the task pool");
+        return Outcome.Settled;
     }
 
     /// <param name="goal">The goal of a lost run that starts again; null: made from the issue.</param>
@@ -747,7 +759,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         var taskId = $"pr-{number.ToString(CultureInfo.InvariantCulture)}";
         var task = new DrivenTask(taskId, Size: settings.BudgetClass, Answers: [.. taken.Select(t => IntakeGoal.ReviewAnswer(t.Author, t.Path, t.Line, t.Body))],
             ContinueFrom: new ContinueFrom(found.Batch, found.Task));
-        var authors = string.Join(", ", taken.Select(t => t.Author).Distinct(StringComparer.OrdinalIgnoreCase).Select(a => $"@{a}"));
+        var authors = string.Join(", ", taken.Select(t => t.Author).Distinct(StringComparer.OrdinalIgnoreCase).Select(a => a == PullReviews.ReviewAuthor ? a : $"@{a}"));
         candidates.Add(DefaultCandidate(key, TriggerSource.ReviewRound, fresh[0].At, async ct2 =>
         {
             if (await SlotAsync(key, name, number, ct2) is { } held)
@@ -934,7 +946,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     private static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
-    private static string Cut(string text, int max) => text.Length <= max ? text : text[..max].TrimEnd() + " [cut]";
+    private static string Cut(string text, int max) => (text.Length <= max ? text : text[..max].TrimEnd() + " [cut]").Replace("<", "&lt;", StringComparison.Ordinal);
 
     /// <summary>A note that is written once per key. The key is kept only after the comment is up, so a comment GitHub refused is tried again.</summary>
     private async Task NotifyOnceAsync(string key, string repository, int issue, string text, CancellationToken ct)

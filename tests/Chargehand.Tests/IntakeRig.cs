@@ -60,6 +60,95 @@ internal sealed class FakeGitHub : IIntakeHost
     public Task<IReadOnlyList<IntakeComment>> CommentsSinceAsync(string repository, DateTimeOffset since, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<IntakeComment>>([.. Comments.Where(c => c.UpdatedAt >= since)]);
 
+    /// <summary>The open issues <see cref="OpenIssuesAsync"/> returns; separate from <see cref="Issues"/>, which holds the labelled ones.</summary>
+    public List<IntakeIssue> OpenIssues { get; } = [];
+
+    public Dictionary<int, IssueState> IssueStates { get; } = [];
+
+    /// <summary>Per-repository open issues; a repository listed here does not read <see cref="OpenIssues"/>.</summary>
+    public Dictionary<string, List<IntakeIssue>> OpenIssuesByRepo { get; } = [];
+
+    /// <summary>Per-repository issue states; read before <see cref="IssueStates"/>.</summary>
+    public Dictionary<(string Repository, int Number), IssueState> RepoIssueStates { get; } = [];
+
+    /// <summary>Every comment posted, with its repository.</summary>
+    public List<(string Repository, int Number, string Body)> RepoComments { get; } = [];
+
+    /// <summary>Repositories whose open-issue, state, label, issue-create and body-edit calls throw an <see cref="IntakeException"/>.</summary>
+    public HashSet<string> SweepFailFor { get; } = [];
+
+    /// <summary>Issues whose label write throws; every other call works.</summary>
+    public HashSet<(string Repository, int Number)> SetLabelsFailFor { get; } = [];
+
+    public List<(string Repository, SweepLabel Label)> SyncedLabels { get; } = [];
+
+    public Dictionary<string, LabelSync> SyncResults { get; } = [];
+
+    public List<(string Repository, int Number, string Label)> LabelAdds { get; } = [];
+
+    public List<(string Repository, int Number, string Label)> LabelRemoves { get; } = [];
+
+    public List<(string Repository, string Title, string Body, int Number)> CreatedIssues { get; } = [];
+
+    public List<(string Repository, int Number, string Body)> EditedBodies { get; } = [];
+
+    private void SweepCheck(string repository)
+    {
+        if (SweepFailFor.Contains(repository))
+            throw new IntakeException("GitHub answered 500 to the request", 500);
+    }
+
+    public Task<IReadOnlyList<IntakeIssue>> OpenIssuesAsync(string repository, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        return Task.FromResult<IReadOnlyList<IntakeIssue>>([.. (OpenIssuesByRepo.TryGetValue(repository, out var own) ? own : OpenIssues).Where(i => !i.IsPullRequest)]);
+    }
+
+    public Task<IssueState?> IssueStateAsync(string repository, int number, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        if (RepoIssueStates.TryGetValue((repository, number), out var own))
+            return Task.FromResult<IssueState?>(own);
+        return Task.FromResult(IssueStates.TryGetValue(number, out var state) ? state : (IssueState?)null);
+    }
+
+    public Task<LabelSync> SyncLabelAsync(string repository, SweepLabel label, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        SyncedLabels.Add((repository, label));
+        return Task.FromResult(SyncResults.GetValueOrDefault(label.Name, LabelSync.Unchanged));
+    }
+
+    public Task SetLabelsAsync(string repository, int number, IReadOnlyList<string> add, IReadOnlyList<string> remove, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        if (SetLabelsFailFor.Contains((repository, number)))
+            throw new IntakeException("GitHub answered 500 to the label write", 500);
+        LabelAdds.AddRange(add.Select(l => (repository, number, l)));
+        LabelRemoves.AddRange(remove.Select(l => (repository, number, l)));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The create that fails with a 500 when this many issues exist already; null: none fails.</summary>
+    public int? CreateFailsAfter { get; set; }
+
+    public Task<int> CreateIssueAsync(string repository, string title, string body, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        if (CreatedIssues.Count == CreateFailsAfter)
+            throw new IntakeException("GitHub answered 500 to the create", 500);
+        var number = 5000 + CreatedIssues.Count;
+        CreatedIssues.Add((repository, title, body, number));
+        return Task.FromResult(number);
+    }
+
+    public Task EditBodyAsync(string repository, int number, string body, CancellationToken ct)
+    {
+        SweepCheck(repository);
+        EditedBodies.Add((repository, number, body));
+        return Task.CompletedTask;
+    }
+
     public Dictionary<int, IntakePull> Pulls { get; } = [];
 
     public List<ReviewComment> ReviewComments { get; } = [];
@@ -83,6 +172,9 @@ internal sealed class FakeGitHub : IIntakeHost
         Check(repository);
         return Task.FromResult<IReadOnlyList<ReviewComment>>([.. ReviewComments.Where(c => c.UpdatedAt >= since)]);
     }
+
+    public Task<IReadOnlyList<string>> CommentBodiesByAsync(string repository, int number, string login, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>>([.. Comments.Where(c => c.IssueNumber == number && string.Equals(c.Author, login, StringComparison.OrdinalIgnoreCase)).OrderBy(c => c.Id).Select(c => c.Body)]);
 
     public Task<IReadOnlyList<string>> CommentBodiesAsync(string repository, int number, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<string>>([.. Comments.Where(c => c.IssueNumber == number).OrderBy(c => c.Id).Select(c => c.Body)]);
@@ -123,6 +215,7 @@ internal sealed class FakeGitHub : IIntakeHost
             throw new IntakeException("GitHub answered 500 to the comment", 500);
         var id = _next++;
         Posted.Add((number, body));
+        RepoComments.Add((repository, number, body));
         Comments.Add(new IntakeComment(id, number, "chargehand[bot]", body, Now()));
         return Task.FromResult(id);
     }
@@ -316,9 +409,11 @@ internal sealed class IntakeRig : IDisposable
     private readonly TempDir _dir = new();
     private readonly IntegratorPolicy? _policy;
     private readonly ManagedClones? _clones;
+    private readonly Integrator? _approver;
 
-    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null, ManagedClones? clones = null)
+    public IntakeRig(AutomationGitHub? settings = null, IntegratorPolicy? policy = null, ManagedClones? clones = null, Integrator? approver = null)
     {
+        _approver = approver;
         _policy = policy;
         _clones = clones;
         Settings = settings ?? new AutomationGitHub(new Dictionary<string, AutomationRepository> { [Repo] = new("/srv/repos/repo") }, [Author]);
@@ -348,9 +443,9 @@ internal sealed class IntakeRig : IDisposable
     public DateTimeOffset Now => Time.GetUtcNow();
 
     /// <summary>An open pull request GitHub lists, whose head fetches to its listed sha.</summary>
-    public ReviewablePull OpenPull(int number, string sha, string author = "carol", bool draft = false, string title = "Retry the call", string body = "Gives up less often.")
+    public ReviewablePull OpenPull(int number, string sha, string author = Author, bool draft = false, string title = "Retry the call", string body = "Gives up less often.", string branch = "")
     {
-        var pull = new ReviewablePull(number, title, body, author, sha, draft);
+        var pull = new ReviewablePull(number, title, body, author, sha, draft, branch);
         GitHub.OpenPulls.RemoveAll(p => p.Number == number);
         GitHub.OpenPulls.Add(pull);
         Heads.Listed = n => GitHub.OpenPulls.Single(p => p.Number == n).HeadSha;
@@ -365,8 +460,11 @@ internal sealed class IntakeRig : IDisposable
     public IntakeState State => IntakeState.Load(StatePath);
 
     private GitHubIntake Build() => new(Settings, GitHub, Log, Heads, IntakeState.Load(StatePath), Time, Warnings.Add, _policy, IntakeSources.Load(SourcesPath), _clones, Infos.Add,
-        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now),
+        subscriptionResetsAt: now => RateLimitUntil > now ? RateLimitUntil : null, quotaWindow: now => QuotaWindow?.Invoke(now), pooled: (repository, issue, ct) => Pooled?.Invoke(repository, issue, ct) ?? Task.FromResult(false), approver: _approver,
         subgateHoldUntil: ct => SubgateHold?.Invoke(ct) ?? Task.FromResult<DateTimeOffset?>(null));
+
+    /// <summary>Whether the task pool holds an open item for an issue; null: none does.</summary>
+    public Func<string, int, CancellationToken, Task<bool>>? Pooled { get; set; }
 
     /// <summary>The subscription window the quota harvester reads (issue #792); null: none is known.</summary>
     public Func<DateTimeOffset, QuotaWindow?>? QuotaWindow { get; set; }

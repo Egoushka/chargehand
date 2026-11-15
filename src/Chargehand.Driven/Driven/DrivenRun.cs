@@ -60,6 +60,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     public async Task<DateTimeOffset?> PoolsRoomAtAsync(string preset, string repositoryPath, CancellationToken ct) =>
         await _routing.WaitUntilAsync(preset, null, await _routing.ClassifyAsync(repositoryPath, ct), ct);
 
+    /// <summary>The owner's override of <c>claude_code.subscription_hold_percent</c> (the console's sweep settings), read each time a batch is set up; null, or a null answer: the profile's.</summary>
+    public Func<decimal?>? HoldPercentOverride { get; set; }
+
     /// <summary>The learning records this server keeps, for <c>GET /v1/learn</c>; null when none are kept.</summary>
     public ILearningStore? Learning => learning;
 
@@ -458,7 +461,7 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
         var credential = own?.ApiKeySecret ?? (priced ? claude.ApiKeySecret : claude.OauthTokenSecret)
             ?? throw new ChargehandException(ErrorCode.CredentialUnavailable, "claude_code names no credential", "Set api_key_secret or oauth_token_secret.");
         var modelEnvironment = ModelEnvironment(priced, Resolve(s, credential));
-        var fallbackSetup = FallbackSetup.Of(claude, kind.Model, profile.PriceOf, priced, fallback, name => Resolve(s, name), c.RunId);
+        var fallbackSetup = FallbackSetup.Of(claude, kind.Model, profile.PriceOf, priced, fallback, name => Resolve(s, name), c.RunId, HoldPercentOverride);
         // The session names its model (ADR 0095): an unresolved placeholder would leave the CLI to pick one, and the batch would price a model that did not run.
         return new BatchSetup(s, settings, claude, image, drivenPreset, routed ?? profile.ResolveModel(kind.Model) ?? kind.Model, own, priced, limits, push, modelEnvironment, SitesOf(s), fallbackSetup, sessions);
     }
