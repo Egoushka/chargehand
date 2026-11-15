@@ -57,10 +57,12 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// <param name="PriorityLabels">Label names that set a waiting trigger's place in the queue, highest first (default <c>priority:high</c>, <c>priority:low</c>; issue #576). An issue with exactly one of
 /// these labels waits ahead of one with a label later in the list, or none; one with more than one of them is not ranked by it, the same as having none. Checked before source, size and age.</param>
 /// <param name="Harvest">The quota harvester (issue #792): issues with its label wait for the end of a subscription window that still has quota left; null: off, and they start like any other.</param>
+/// <param name="ReviewBlockConfidence">A review finding at or above this confidence blocks a merge and starts a review round (default 0.8); a review with none is the approval.</param>
+/// <param name="AppLogin">The integrator App's login (<c>&lt;slug&gt;[bot]</c>), whose pull requests <paramref name="ReviewPulls"/> also reviews; left out, it is read from the integrator's <c>app_slug</c>.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
     bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false, int MaxStartsPerHour = 30, int BreakerCooldownMinutes = 120,
-    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null)
+    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null, decimal ReviewBlockConfidence = 0.8m, string? AppLogin = null)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
@@ -129,6 +131,7 @@ public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, Automa
         if (MaxStartsPerHour is < 0 or > 1000) yield return "max_starts_per_hour must be 0 to 1000";
         if (BreakerCooldownMinutes is < 1 or > 10080) yield return "breaker_cooldown_minutes must be 1 to 10080";
         if (MaxReviewBacklog is < 0 or > 50) yield return "max_review_backlog must be 0 to 50";
+        if (ReviewBlockConfidence is < 0 or > 1) yield return "review_block_confidence must be 0 to 1";
         if (MaxReviewRounds is < 0 or > DrivenCiFix.AttemptCap) yield return $"max_review_rounds must be 0 to {DrivenCiFix.AttemptCap}";
     }
 

@@ -47,7 +47,8 @@ public class IntegratorChecksGateTests
     {
         var host = new FakeIntegrationHost { Gate = ChecksGate.Required };
 
-        var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        var result = await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);
 
         Assert.Equal(IntegrationAction.AutoMergeEnabled, result.Action);
         Assert.Contains("auto-merge aaaaaaa1", host.Calls);

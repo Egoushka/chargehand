@@ -47,7 +47,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         foreach (var pull in pulls)
         {
             var asked = _requested.Contains(Asked(name, pull.Number));
-            if (!asked && (!all || pull.Draft || pull.Author.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase)))
+            if (!asked && (!all || pull.Draft || !Trusted(pull.Author)))
                 continue;
             if (pull.HeadSha.Length < 7 || state.Reviewed.Contains(Key(name, pull.Number, pull.HeadSha)))
             {
@@ -75,6 +75,10 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             }
         }
     }
+
+    /// <summary>Automatic review covers an allowed author's pull requests and the App's own; anyone else's is reviewed only when an allowed author asks.</summary>
+    private bool Trusted(string author) =>
+        settings.AllowedAuthors?.Contains(author, StringComparer.OrdinalIgnoreCase) == true || settings.AppLogin is { Length: > 0 } app && app.Equals(author, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>False when the server refused the run: the rest wait for the next poll.</summary>
     private async Task<bool> TryStartAsync(string name, AutomationRepository repository, ReviewablePull pull, CheckoutSources checkouts, IBatchStarter starter, IntakeSources policy, CancellationToken ct)
@@ -147,7 +151,9 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         (await host.CommentBodiesAsync(repository, number, ct)).Any(b => b.Contains(MarkerFor(sha), StringComparison.Ordinal));
 
     /// <summary>Comments the findings of the reviews that ended. A review whose server stopped without a result is dropped and its commit becomes reviewable again.</summary>
-    public async Task ReportEndedAsync(CancellationToken ct)
+    /// <param name="onClean">Called with the repository, pull request and head after a review of a completed run with no blocking finding was posted.</param>
+    /// <param name="onBlocking">Called with the round the blocking findings start, as chargehand's own comment (not an allowed author's).</param>
+    public async Task ReportEndedAsync(Func<string, int, string, CancellationToken, Task> onClean, Func<PendingReview, CancellationToken, Task> onBlocking, CancellationToken ct)
     {
         foreach (var review in state.Reviews.ToList())
         {
@@ -155,7 +161,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             {
                 var entry = await log.ReadAsync(review.RunId, ct);
                 if (entry.Run is { } run)
-                    await PostAsync(review, run.Result, ct);
+                    await PostAsync(review, run.Result, onClean, onBlocking, ct);
                 else if (time.GetUtcNow() - review.Started > GitHubIntake.LostAfter && (entry.Start is null || !entry.Start.OwnerAlive()))
                 {
                     state.Reviews.Remove(review);
@@ -170,7 +176,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         }
     }
 
-    private async Task PostAsync(PullReview review, ResultContract result, CancellationToken ct)
+    private async Task PostAsync(PullReview review, ResultContract result, Func<string, int, string, CancellationToken, Task> onClean, Func<PendingReview, CancellationToken, Task> onBlocking, CancellationToken ct)
     {
         try
         {
@@ -180,9 +186,31 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         catch (IntakeException e) when (e.Status is 404 or 410)
         {
             // The pull request is gone: nobody to tell.
+            Done(review);
+            return;
         }
+        Done(review);
+        if (result.Status != ResultStatus.Completed)
+            return;
+        if (ReviewVerdict.IsClean(result.Claims, settings.ReviewBlockConfidence))
+            await onClean(review.Repository, review.Pull, review.Sha, ct);
+        else
+            await onBlocking(Round(review, result), ct);
+    }
+
+    private void Done(PullReview review)
+    {
         state.Reviews.Remove(review);
         state.Save(time.GetUtcNow());
+    }
+
+    /// <summary>The blocking findings as the answer of a review round. The id is a number made from the head, so a head is answered once; the author is chargehand itself.</summary>
+    private PendingReview Round(PullReview review, ResultContract result)
+    {
+        var findings = result.Claims.Where(c => ReviewVerdict.IsBlocking(c, settings.ReviewBlockConfidence)).OrderByDescending(c => c.Confidence).Take(MaxFindings)
+            .Select(c => $"{Plain(c.Text, MaxFinding)} (evidence: {Locators(c, result)})");
+        _ = ulong.TryParse(review.Sha[..Math.Min(review.Sha.Length, 15)], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var id);
+        return new PendingReview($"c{id.ToString(CultureInfo.InvariantCulture)}", review.Repository, review.Pull, "chargehand", string.Join("\n", findings.Select(f => $"- {f}")), null, null, time.GetUtcNow());
     }
 
     /// <summary>The comment for a finished review. Model text is neutralised: an @ gets a zero-width space so it pings no one, &lt; becomes an entity so it opens no HTML, and line breaks become spaces.</summary>

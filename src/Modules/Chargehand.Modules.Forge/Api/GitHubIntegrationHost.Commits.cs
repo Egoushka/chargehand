@@ -12,10 +12,16 @@ public partial interface IIntegrationHost
     /// A forge that cannot read this, or a pull request whose history no longer holds <paramref name="afterSha"/>, throws.</summary>
     Task<IReadOnlyList<PrCommit>> CommitsAfterAsync(RemoteRepository repository, int number, string afterSha, CancellationToken ct) =>
         throw new IntegrationException($"{Name} cannot list a pull request's commits from here");
+
+    /// <summary>Puts a label on the pull request; a forge without labels does nothing.</summary>
+    Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct) => Task.CompletedTask;
 }
 
 public sealed partial class GitHubIntegrationHost
 {
+    public async Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct) =>
+        await RestAsync(repository, HttpMethod.Post, $"{RepoPath(repository)}/issues/{number.ToString(CultureInfo.InvariantCulture)}/labels", new LabelsBody([label]), "the label", ct);
+
     public async Task<IReadOnlyList<PrCommit>> CommitsAfterAsync(RemoteRepository repository, int number, string afterSha, CancellationToken ct)
     {
         var commits = CommitList(await RestAsync(repository, HttpMethod.Get,

@@ -104,6 +104,15 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         return Task.CompletedTask;
     }
 
+    /// <summary>The labels put on the pull request; not in <see cref="Calls"/>.</summary>
+    public List<string> Labels { get; } = [];
+
+    public Task AddLabelAsync(RemoteRepository repository, int number, string label, CancellationToken ct)
+    {
+        Labels.Add(label);
+        return Task.CompletedTask;
+    }
+
     public Task CommentAsync(RemoteRepository repository, int number, string body, CancellationToken ct)
     {
         Calls.Add("comment");

@@ -438,7 +438,7 @@ internal sealed class IntakeRig : IDisposable
     public DateTimeOffset Now => Time.GetUtcNow();
 
     /// <summary>An open pull request GitHub lists, whose head fetches to its listed sha.</summary>
-    public ReviewablePull OpenPull(int number, string sha, string author = "carol", bool draft = false, string title = "Retry the call", string body = "Gives up less often.")
+    public ReviewablePull OpenPull(int number, string sha, string author = Author, bool draft = false, string title = "Retry the call", string body = "Gives up less often.")
     {
         var pull = new ReviewablePull(number, title, body, author, sha, draft);
         GitHub.OpenPulls.RemoveAll(p => p.Number == number);

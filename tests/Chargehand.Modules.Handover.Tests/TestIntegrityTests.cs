@@ -131,7 +131,10 @@ public class TestIntegrityTests
     {
         var host = new FakeIntegrationHost { StatusAfterReady = "CLEAN" };
 
-        var result = await Make(host).IntegrateAsync(Flagged() with { TestIntegrity = null }, _ => { }, default);
+        var target = Flagged() with { TestIntegrity = null };
+
+        await Make(host).IntegrateAsync(target, _ => { }, default);
+        var result = await Make(host).ApproveAsync(target, "aaaaaaa1", default);
 
         Assert.Equal(IntegrationAction.Merged, result.Action);
     }

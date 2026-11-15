@@ -13,20 +13,53 @@ public class IntegratorTests
     private static Integrator Make(FakeIntegrationHost host, string mode = "merge", string[]? alwaysAsk = null) =>
         new(new IntegratorPolicy(new DrivenIntegrator(1, 2, "k", new Dictionary<string, string> { ["o/r"] = mode }, alwaysAsk)), host, delay: (_, _) => Task.CompletedTask);
 
+    /// <summary>Handover, then chargehand's clean review of the head it left.</summary>
+    private static async Task<IntegrationResult> ApprovedAsync(FakeIntegrationHost host)
+    {
+        await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        return await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);
+    }
+
     private static IntegrationTarget Target(bool partial = false) => new(Repo, 7, "chargehand/run1", partial, "Add a retry");
 
     [Fact]
-    public async Task A_draft_on_a_merge_repository_is_marked_ready_and_auto_merge_is_enabled_for_its_head()
+    public async Task Handover_marks_ready_but_does_not_enable_auto_merge()
     {
         var host = new FakeIntegrationHost();
         List<string> told = [];
 
         var result = await Make(host).IntegrateAsync(Target(), told.Add, default);
 
-        Assert.Equal(IntegrationAction.AutoMergeEnabled, result.Action);
-        Assert.Equal(["get", "behind main chargehand/run1", "ready", "get", "auto-merge aaaaaaa1"], host.Calls);
+        Assert.Equal(IntegrationAction.AwaitingReview, result.Action);
+        Assert.Equal(["get", "behind main chargehand/run1", "ready", "get"], host.Calls);
         Assert.Equal(["marked ready for review", result.Detail], told);
-        Assert.Contains("squash", result.Detail);
+    }
+
+    [Fact]
+    public async Task Clean_review_on_head_enables_auto_merge_in_merge_mode()
+    {
+        var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", checks: [new("ci", true, CheckOutcome.Passed, 1)]) };
+
+        var result = await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);
+
+        Assert.Equal(IntegrationAction.AutoMergeEnabled, result.Action);
+        Assert.Contains("auto-merge aaaaaaa1", host.Calls);
+    }
+
+    [Fact]
+    public async Task Clean_review_enables_nothing_in_ask_mode_on_a_moved_head_or_with_a_failed_check()
+    {
+        var ready = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", checks: [new("ci", true, CheckOutcome.Passed, 1)]);
+        var ask = new FakeIntegrationHost { Current = ready };
+        var moved = new FakeIntegrationHost { Current = ready with { HeadSha = "ccccccc3" } };
+        var failed = new FakeIntegrationHost { Current = ready with { Checks = [new("ci", true, CheckOutcome.Failed, 1)] } };
+
+        await Make(ask, "ask").ApproveAsync(Target(), "aaaaaaa1", default);
+        await Make(moved).ApproveAsync(Target(), "aaaaaaa1", default);
+        await Make(failed).ApproveAsync(Target(), "aaaaaaa1", default);
+
+        foreach (var host in new[] { ask, moved, failed })
+            Assert.DoesNotContain(host.Calls, c => c.StartsWith("auto-merge", StringComparison.Ordinal) || c.StartsWith("merge", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -35,9 +68,10 @@ public class IntegratorTests
         var host = new FakeIntegrationHost { BehindBy = 2 };
 
         var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        await Make(host).ApproveAsync(Target(), "bbbbbbb2", default);
 
-        Assert.Equal(IntegrationAction.AutoMergeEnabled, result.Action);
-        Assert.Equal(["get", "behind main chargehand/run1", "update-branch aaaaaaa1", "get", "ready", "get", "auto-merge bbbbbbb2"], host.Calls);
+        Assert.Equal(IntegrationAction.AwaitingReview, result.Action);
+        Assert.Equal(["get", "behind main chargehand/run1", "update-branch aaaaaaa1", "get", "ready", "get", "get", "auto-merge bbbbbbb2"], host.Calls);
     }
 
     [Fact]
@@ -70,7 +104,7 @@ public class IntegratorTests
     {
         var host = new FakeIntegrationHost { StatusAfterReady = "CLEAN" };
 
-        var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        var result = await ApprovedAsync(host);
 
         Assert.Equal(IntegrationAction.Merged, result.Action);
         Assert.Equal("merge aaaaaaa1", host.Calls[^1]);
@@ -81,9 +115,9 @@ public class IntegratorTests
     public async Task When_GitHub_refuses_auto_merge_on_a_pull_request_that_became_mergeable_it_is_merged_by_the_same_rules()
     {
         var host = new FakeIntegrationHost { AutoMergeRefused = new IntegrationException("Pull request is in clean status") };
-        host.Script = h => h.Calls.Contains("ready") && h.Calls.Count(c => c == "get") >= 3 ? h.Current with { MergeStatus = "CLEAN" } : h.Current;
+        host.Script = h => h.Calls.Contains("ready") && h.Calls.Count(c => c == "get") >= 4 ? h.Current with { MergeStatus = "CLEAN" } : h.Current;
 
-        var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        var result = await ApprovedAsync(host);
 
         Assert.Equal(IntegrationAction.Merged, result.Action);
         Assert.Equal("merge aaaaaaa1", host.Calls[^1]);
@@ -94,7 +128,7 @@ public class IntegratorTests
     {
         var host = new FakeIntegrationHost { AutoMergeRefused = new IntegrationException("Auto merge is not allowed for this repository") };
 
-        var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        var result = await ApprovedAsync(host);
 
         Assert.Equal(IntegrationAction.Failed, result.Action);
         Assert.Contains("not allowed", result.Detail);

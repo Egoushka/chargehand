@@ -19,7 +19,7 @@ namespace Chargehand.Automation;
 public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost host, IRunLog log, IRepositoryHeads heads, IntakeState state, TimeProvider? clock = null, Action<string>? warn = null,
     IntegratorPolicy? integrator = null, IntakeSources? sources = null, ManagedClones? clones = null, Action<string>? info = null, Func<DateTimeOffset, DateTimeOffset?>? subscriptionResetsAt = null,
     Func<DateTimeOffset, QuotaWindow?>? quotaWindow = null, Func<string, CancellationToken, Task<DateTimeOffset?>>? poolsRoomAt = null,
-    Func<string, int, CancellationToken, Task<bool>>? pooled = null)
+    Func<string, int, CancellationToken, Task<bool>>? pooled = null, Integrator? approver = null)
 {
     public const string Preset = "driven";
 
@@ -177,7 +177,7 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
         _backlog.NewPoll();
         _overlap.NewPoll();
         await ReportEndedAsync(ct);
-        await _reviews.ReportEndedAsync(ct);
+        await _reviews.ReportEndedAsync(ApproveCleanAsync, QueueReviewRoundAsync, ct);
         _watched = await WatchAsync(ct);
         LogPoll(_watched.Keys.Count(Sources.IsOn), state.Tasks.Count(t => t.Phase == IntakePhase.Running));
         foreach (var (name, watched) in _watched)

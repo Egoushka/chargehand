@@ -10,7 +10,7 @@ namespace Chargehand.Modules.Handover.Api;
 /// <param name="LocalOnly">The repository is local-only (ADR 0069): the integrator and the CI fixer do nothing and call no forge.</param>
 public sealed record IntegrationTarget(RemoteRepository Repository, int Number, string Branch, bool Partial, string TaskGoal, string? TestIntegrity = null, bool LocalOnly = false);
 
-public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAttention, Failed }
+public enum IntegrationAction { None, Asked, AutoMergeEnabled, Merged, NeedsAttention, Failed, AwaitingReview }
 
 /// <param name="Detail">One line for the task outcome and the run event.</param>
 public sealed record IntegrationResult(IntegrationAction Action, string Detail);
@@ -55,7 +55,7 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
     /// <summary>The sentence the pull request body says about what happens next, for a repository that is opted in; null where the draft-only text is still true (off, or a partial result).</summary>
     public string? Describe(RemoteRepository repository, bool partial) => partial ? null : policy.Resolve(repository) switch
     {
-        IntegrationMode.Merge => $"Opened by chargehand as a draft. This repository lets chargehand mark it ready and enable auto-merge, so {host.Name} merges it only once every required check and rule passes; chargehand never bypasses a rule."
+        IntegrationMode.Merge => $"Opened by chargehand as a draft. This repository lets chargehand mark it ready and, once its own review of the head has no blocking finding, enable auto-merge, so {host.Name} merges it only once every required check and rule passes; chargehand never bypasses a rule."
             + (CiFix.Attempts > 0 ? $" If a required check fails, chargehand makes up to {CiFix.Attempts.ToString(CultureInfo.InvariantCulture)} attempts to fix it on this branch." : ""),
         IntegrationMode.Ask => "Opened by chargehand as a draft. This repository asks first: chargehand marks it ready for review and does not merge it.",
         _ => null,
@@ -96,7 +96,7 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, migration, report, ct) : await MergeAsync(target, pr, report, ct);
+            return mode == IntegrationMode.Ask ? await AskAsync(target, pr, gate, migration, report, ct) : await AwaitReviewAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {
@@ -138,6 +138,7 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
         if (migration is not null)
         {
             await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand marked this pull request ready but does not merge it: it adds a database migration ({migration}). The repository owner merges it.", ct);
+            await NeedsYouAsync(target, ct);
             return Say(report, IntegrationAction.Asked, $"marked ready; not merged because it adds a database migration ({migration})");
         }
         if (gate != ChecksGate.Required)
@@ -156,32 +157,6 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
         }
         await CommentOnceAsync(target, pr, AskMarker, "chargehand marked this pull request ready. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
         return Say(report, IntegrationAction.Asked, "marked ready; the repository's policy is ask, so it is left for a person to merge");
-    }
-
-    private async Task<IntegrationResult> MergeAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
-    {
-        if (pr.MergeStatus == "DIRTY")
-        {
-            await CommentOnceAsync(target, pr, ConflictMarker, "This pull request conflicts with its base branch, so chargehand is not merging it; a person needs to resolve it.", ct);
-            return Say(report, IntegrationAction.NeedsAttention, "the pull request conflicts with its base; not merged");
-        }
-        if (pr.AutoMerge)
-            return Say(report, IntegrationAction.AutoMergeEnabled, "auto-merge was already enabled");
-        if (pr.MergeStatus == "CLEAN")
-            return await MergeNowAsync(target, pr.HeadSha, report, ct);
-        try
-        {
-            await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
-        }
-        catch (IntegrationException)
-        {
-            // GitHub refuses auto-merge on a pull request that is mergeable already; then the merge itself goes through the same rules.
-            var fresh = await host.GetAsync(target.Repository, target.Number, ct);
-            if (fresh.IsDraft || fresh.MergeStatus is not ("CLEAN" or "UNSTABLE"))
-                throw;
-            return await MergeNowAsync(target, fresh.HeadSha, report, ct);
-        }
-        return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; {host.Name} merges once the required checks pass");
     }
 
     /// <summary>Watch the required checks of a pull request that <see cref="IntegrateAsync"/> handled. When some fail and every required check has finished, <paramref name="fix"/> runs a session on the branch,
@@ -312,7 +287,7 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
     {
         if (mode == IntegrationMode.Ask)
             return Say(report, IntegrationAction.Asked, "required checks passed; left for a person to merge");
-        if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Asked or IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention } done)
+        if (!pr.AutoMerge && await IntegrateAsync(target, report, ct, headMoved) is { Action: IntegrationAction.Asked or IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.NeedsAttention or IntegrationAction.AwaitingReview } done)
             return done;
         return null;
     }

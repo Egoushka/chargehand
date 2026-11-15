@@ -38,6 +38,20 @@ public class IntegratorMigrationTests
     }
 
     [Fact]
+    public async Task Migrations_folder_cs_file_is_not_merged_and_is_labelled()
+    {
+        var host = new FakeIntegrationHost { ChangedPaths = ["src/X/Migrations/1_add.cs"], StatusAfterReady = "CLEAN", Current = FakeIntegrationHost.Snapshot(checks: Green) };
+
+        var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        var approved = await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);
+
+        Assert.Equal(IntegrationAction.Asked, result.Action);
+        Assert.Equal(IntegrationAction.None, approved.Action);
+        Assert.Equal(["agent:needs-you"], host.Labels);
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal) || c.StartsWith("auto-merge", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task The_migration_is_commented_once_across_repeated_passes()
     {
         var host = Host("CLEAN");
@@ -54,8 +68,10 @@ public class IntegratorMigrationTests
         var host = new FakeIntegrationHost { ChangedPaths = ["src/Store.cs", "docs/db/migrations.md", "db/seeds/0001.sql"], StatusAfterReady = "CLEAN" };
 
         var result = await Make(host).IntegrateAsync(Target(), _ => { }, default);
+        var approved = await Make(host).ApproveAsync(Target(), "aaaaaaa1", default);
 
-        Assert.Equal(IntegrationAction.Merged, result.Action);
+        Assert.Equal(IntegrationAction.AwaitingReview, result.Action);
+        Assert.Equal(IntegrationAction.Merged, approved.Action);
     }
 
     [Fact]
@@ -84,9 +100,12 @@ public class IntegratorMigrationTests
     [InlineData("db/migrations/0001_init.sql", true)]
     [InlineData("server/db/migrations/0001_init.SQL", true)]
     [InlineData("db/migrations/0001_init.down.sql", true)]
-    [InlineData("db/migrations/README.md", false)]
+    [InlineData("db/migrations/README.md", true)]
     [InlineData("db/migrations.sql", false)]
     [InlineData("db/seeds/0001.sql", false)]
-    [InlineData("migrations/0001.sql", false)]
-    public void Only_a_sql_file_in_a_db_migrations_folder_is_a_migration(string path, bool expected) => Assert.Equal(expected, MigrationPaths.IsMigration(path));
+    [InlineData("migrations/0001.sql", true)]
+    [InlineData("src/App/Migrations/20260101_Add.cs", true)]
+    [InlineData("Migrations/Snapshot.cs", true)]
+    [InlineData("docs/db/migrations.md", false)]
+    public void Only_a_file_below_a_migrations_folder_is_a_migration(string path, bool expected) => Assert.Equal(expected, MigrationPaths.IsMigration(path));
 }
