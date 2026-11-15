@@ -26,12 +26,18 @@ public sealed partial class IssueSweep
 
         public string? Problem { get; set; }
 
-        public void Count(SweepVerdict verdict)
+        public List<SweepNeedsYou> NeedsYouItems { get; } = [];
+
+        public void Count(string repository, IntakeIssue issue, SortResult result)
         {
-            switch (verdict)
+            switch (result.Verdict)
             {
                 case SweepVerdict.Ready: _ready++; break;
-                case SweepVerdict.NeedsOwner: _needsYou++; break;
+                case SweepVerdict.NeedsOwner:
+                    _needsYou++;
+                    NeedsYouItems.Add(new SweepNeedsYou(repository, issue.Number, issue.Title, result.Reason,
+                        $"https://github.com/{repository}/issues/{issue.Number.ToString(CultureInfo.InvariantCulture)}"));
+                    break;
                 case SweepVerdict.Blocked: _blocked++; break;
                 default: _epic++; break;
             }

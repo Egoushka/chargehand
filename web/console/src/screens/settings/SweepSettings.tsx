@@ -178,7 +178,7 @@ function SweepForm({ settings }: { settings: SweepSettingsBody }) {
         </fieldset>
         <Field
           label="Subscription hold, percent"
-          hint={`Hold pool runs at this share of the subscription window. ${inForce(settings.subscription_hold_percent, (v) => (v === 0 ? 'none' : `${v}%`))}.`}
+          hint={`Share of a subscription window, in percent, after which driven work moves to the API key. Empty uses the profile's value. ${inForce(settings.subscription_hold_percent, (v) => (v === 0 ? 'none' : `${v}%`))}.`}
           error={holdProblem(draft.hold)}
         >
           {(control) => (

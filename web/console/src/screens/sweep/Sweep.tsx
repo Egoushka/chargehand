@@ -1,6 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { type SweepBody, type SweepRepositoryBody, sweepQuery, useScan } from '../../api/sweep';
+import {
+  type SweepBody,
+  type SweepNeedsYouItem,
+  type SweepRepositoryBody,
+  sweepQuery,
+  useScan,
+} from '../../api/sweep';
 import { formatDateTime, formatTime } from '../../lib/format';
 import { useIsPhone } from '../../shell/useIsPhone';
 import {
@@ -19,13 +25,14 @@ import {
 import { isForbidden, useOwnerGate } from '../admin/gate';
 import { OwnerOnly } from '../admin/OwnerOnly';
 import { PanelSkeleton, ScrollBox } from '../admin/parts';
-import { isScanning, needsYouTotal, sweepRows } from './model';
+import { isScanning, NEEDS_YOU_SHOWN, needsYouTotal, sweepRows, waitText } from './model';
 import './sweep.css';
 
-const COLS = 'minmax(0,1.3fr) repeat(6,84px) minmax(0,2fr)';
+const COLS = 'minmax(0,1.3fr) repeat(7,78px) minmax(0,2fr)';
 const COUNTS = [
   ['ready', 'Ready'],
   ['enqueued', 'Started'],
+  ['running', 'Running'],
   ['needs_you', 'Needs you'],
   ['blocked', 'Blocked'],
   ['epic', 'Epic'],
@@ -169,13 +176,41 @@ function Repositories({ data }: { data: SweepBody }) {
           </Table>
         </ScrollBox>
       )}
-      {needsYouTotal(rows) > 0 ? (
-        <p className="pad dim small sep-top">
-          {needsYouTotal(rows)} issue{needsYouTotal(rows) === 1 ? '' : 's'} wait for you: they carry
-          the label that says so. <Link to="/needs-you">Open Needs you</Link>
-        </p>
-      ) : null}
+      <NeedsYou items={data.needs_you_items} total={needsYouTotal(rows)} />
     </Panel>
+  );
+}
+
+/** The last sweep's needs-you issues with the sorter's reason, the first few of them. */
+function NeedsYou({ items, total }: { items: SweepNeedsYouItem[]; total: number }) {
+  const count = Math.max(total, items.length);
+  if (count === 0) return null;
+  const more = items.length - NEEDS_YOU_SHOWN;
+  return (
+    <section className="sep-top" aria-label="Needs you">
+      <p className="pad dim small">
+        {waitText(count)}: they carry the label that says so.{' '}
+        <Link to="/needs-you">Open Needs you</Link>
+      </p>
+      {items.length > 0 ? (
+        <ul className="list-reset">
+          {items.slice(0, NEEDS_YOU_SHOWN).map((item) => (
+            <li key={item.url} className="li" style={cssVars({ '--cols': 'minmax(0,1fr)' })}>
+              <div className="li__main">
+                <span className="sweep-counts">
+                  <a href={item.url} target="_blank" rel="noreferrer noopener" title={item.url}>
+                    <span className="mono">#{item.issue}</span> {item.title}
+                  </a>{' '}
+                  <span className="dim small">{item.repository}</span>
+                </span>
+                <div className="li__meta sweep-counts">{item.reason}</div>
+              </div>
+            </li>
+          ))}
+          {more > 0 ? <li className="pad dim small">and {more} more</li> : null}
+        </ul>
+      ) : null}
+    </section>
   );
 }
 

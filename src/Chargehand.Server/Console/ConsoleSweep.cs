@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Chargehand.Automation;
+using Chargehand.Modules.Pool.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,7 +15,8 @@ public sealed record ListBody<T>(IReadOnlyList<T> Profile, IReadOnlyList<T>? Ove
 public sealed record SweepPoolHold(string Repository, string Text, DateTimeOffset Until);
 
 /// <summary><c>sweep/v1</c>: the sweep's schedule and its last, running and next sweep.</summary>
-public sealed record SweepBody(string ContractVersion, bool Configured, bool ScheduleOn, string TimeZone, SweepRunning? Running, SweepReport? Last, DateTimeOffset? Next, IReadOnlyList<SweepPoolHold> PoolHolds);
+public sealed record SweepBody(string ContractVersion, bool Configured, bool ScheduleOn, string TimeZone, SweepRunning? Running, SweepReport? Last, DateTimeOffset? Next, IReadOnlyList<SweepPoolHold> PoolHolds,
+    IReadOnlyList<SweepNeedsYou> NeedsYouItems);
 
 /// <summary><c>sweep-settings/v1</c>: the profile's sweep settings, the owner's overrides and what is in force.</summary>
 public sealed record SweepSettingsBody(string ContractVersion, bool Configured, string TimeZone, LimitBody<bool> Enabled, ListBody<string> At, ListBody<string> Days,
@@ -34,8 +36,13 @@ internal static class ConsoleSweep
                 ? ChargehandServer.Json(new { id = host.Start("manual") }, StatusCodes.Status202Accepted)
                 : NotConfigured()));
 
-        app.MapGet("/v1/sweep", (HttpContext ctx) =>
-            ChargehandServer.OwnerOnly(ctx) ?? ChargehandServer.Json(BuildSweep(ctx.RequestServices.GetService<SweepHost>(), ctx.RequestServices.GetService<PoolBreakerCheck>(), clock), StatusCodes.Status200OK));
+        app.MapGet("/v1/sweep", async (HttpContext ctx) =>
+        {
+            if (ChargehandServer.OwnerOnly(ctx) is { } refused)
+                return refused;
+            var items = ctx.RequestServices.GetService<TaskPool>() is { } pool ? await pool.ItemsAsync(null, ctx.RequestAborted) : [];
+            return ChargehandServer.Json(BuildSweep(ctx.RequestServices.GetService<SweepHost>(), ctx.RequestServices.GetService<PoolBreakerCheck>(), clock, items), StatusCodes.Status200OK);
+        });
 
         app.MapGet("/v1/sweep/settings", (HttpContext ctx) =>
             ChargehandServer.OwnerOnly(ctx) ?? ChargehandServer.Json(BuildSettings(ctx.RequestServices.GetService<SweepHost>(), profileHoldPercent), StatusCodes.Status200OK));
@@ -157,13 +164,20 @@ internal static class ConsoleSweep
         return true;
     }
 
-    public static SweepBody BuildSweep(SweepHost? host, PoolBreakerCheck? breaker, TimeProvider clock)
+    public static SweepBody BuildSweep(SweepHost? host, PoolBreakerCheck? breaker, TimeProvider clock, IReadOnlyList<PoolItem> poolItems)
     {
         var holds = breaker?.Active().Select(h => new SweepPoolHold(h.Repository, h.Text, h.Until)).ToList() ?? [];
         if (host is null)
-            return new(Contract, false, false, "UTC", null, null, null, holds);
+            return new(Contract, false, false, "UTC", null, null, null, holds, []);
         var settings = host.Effective();
-        return new(Contract, true, settings.Enabled, settings.TimeZone, host.Current, host.Last, host.Next(clock.GetUtcNow()), holds);
+        var last = host.Last;
+        if (last is not null)
+        {
+            var claimed = poolItems.Where(i => i.Status == PoolStatus.Claimed).GroupBy(i => i.Repository).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            last = last with { Repositories = last.Repositories.Select(r => r with { Running = claimed.GetValueOrDefault(r.Repository) }).ToList(), NeedsYouItems = null };
+        }
+
+        return new(Contract, true, settings.Enabled, settings.TimeZone, host.Current, last, host.Next(clock.GetUtcNow()), holds, host.Last?.NeedsYouItems ?? []);
     }
 
     public static SweepSettingsBody BuildSettings(SweepHost? host, decimal? profileHoldPercent)

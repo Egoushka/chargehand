@@ -34,14 +34,20 @@ public sealed partial class IssueSweep(
         await EmitAsync(id, "chargehand.sweep.started", "started", w => w.WriteString("trigger", trigger), ct);
         var budget = new Budget(settings.MaxSortsPerSweep);
         var rows = new List<SweepRepoRow>();
+        var needsYou = new List<SweepNeedsYou>();
         foreach (var (repository, checkout) in repositories.OrderBy(r => r.Key, StringComparer.Ordinal))
-            rows.Add(await SweepOneAsync(id, repository, checkout, budget, ct));
-        var report = new SweepReport(id, trigger, started, clock.GetUtcNow(), rows);
+        {
+            var (row, items) = await SweepOneAsync(id, repository, checkout, budget, ct);
+            rows.Add(row);
+            needsYou.AddRange(items);
+        }
+
+        var report = new SweepReport(id, trigger, started, clock.GetUtcNow(), rows, needsYou);
         await EmitAsync(id, "chargehand.sweep.finished", "finished", w => WriteCounts(w, report), ct);
         return report;
     }
 
-    private async Task<SweepRepoRow> SweepOneAsync(string sweepId, string repository, AutomationRepository checkout, Budget budget, CancellationToken ct)
+    private async Task<(SweepRepoRow Row, IReadOnlyList<SweepNeedsYou> NeedsYou)> SweepOneAsync(string sweepId, string repository, AutomationRepository checkout, Budget budget, CancellationToken ct)
     {
         var tally = new Tally();
         try
@@ -62,7 +68,7 @@ public sealed partial class IssueSweep(
             }, ct);
         }
 
-        return tally.Row(repository, tally.Problem);
+        return (tally.Row(repository, tally.Problem), tally.NeedsYouItems);
     }
 
     private async Task SweepRepositoryAsync(string repository, AutomationRepository checkout, Budget budget, Tally tally, CancellationToken ct)
@@ -120,7 +126,7 @@ public sealed partial class IssueSweep(
         }
 
         await PublishAsync(repository, issue, key, cacheHash, result, unreadable, ct);
-        tally.Count(result.Verdict);
+        tally.Count(repository, issue, result);
         if (result.Verdict == SweepVerdict.Epic && !issue.Body.Contains(SplitMarker, StringComparison.Ordinal))
             await splitter.SplitAsync(repository, issue, ct);
         else if (result.Verdict == SweepVerdict.Ready && await EnqueueAsync(repository, issue, result, ct))

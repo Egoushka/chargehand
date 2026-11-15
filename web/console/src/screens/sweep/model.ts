@@ -29,6 +29,13 @@ export const sweepRows = (sweep: SweepBody): SweepRepositoryBody[] =>
 export const needsYouTotal = (rows: SweepRepositoryBody[]): number =>
   rows.reduce((sum, row) => sum + row.needs_you, 0);
 
+/** How many needs-you issues the list shows before "and N more". */
+export const NEEDS_YOU_SHOWN = 20;
+
+/** "1 issue waits for you", "3 issues wait for you". */
+export const waitText = (count: number): string =>
+  count === 1 ? '1 issue waits for you' : `${count} issues wait for you`;
+
 /** What the owner has set; `null` is "no override: the profile's value". */
 export interface SweepDraft {
   enabled: boolean | null;

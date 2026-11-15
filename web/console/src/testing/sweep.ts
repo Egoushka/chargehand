@@ -19,6 +19,7 @@ export const repoRow = (over: Partial<SweepRepositoryBody> = {}): SweepRepositor
   skipped: 0,
   enqueued: 2,
   deferred: 0,
+  running: 1,
   ...over,
 });
 
@@ -40,12 +41,22 @@ export function sweep(over: Partial<SweepBody> = {}, now = Date.now()): SweepBod
           ready: 0,
           needs_you: 0,
           enqueued: 0,
+          running: 0,
           problem: 'checkout refused: tracks a denied file (fix: public_files)',
         }),
       ],
     },
     next: new Date(now + 3 * 3_600_000).toISOString(),
     pool_holds: [],
+    needs_you_items: [
+      {
+        repository: 'example/app',
+        issue: 42,
+        title: 'Pick a retention period for old exports',
+        reason: 'The issue asks which retention to keep; that is the owner’s call.',
+        url: 'https://github.com/example/app/issues/42',
+      },
+    ],
     ...over,
   };
 }

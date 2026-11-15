@@ -77,6 +77,30 @@ public sealed class ConsoleSweepTests
     }
 
     [Fact]
+    public async Task Get_counts_the_pools_running_items_and_lists_what_needs_you()
+    {
+        using var rig = NewRig();
+        rig.GitHub.OpenIssuesByRepo[IntakeRig.Repo] = [new IntakeIssue(1, "Plain", "", IntakeRig.Author, false, [], DateTimeOffset.UnixEpoch)];
+        var sorter = new GateSorter();
+        sorter.Gate.SetResult();
+        await using var server = await Start(rig, sorter);
+        using (var store = SqlitePoolStore.Open(Path.Combine(server.WorkerRoot, "pool.db")))
+        {
+            await store.EnqueueAsync(new EnqueueRequest(IntakeRig.Repo, "docs", "Other", "b", Issue: 9), 100, DateTimeOffset.UtcNow, CancellationToken.None);
+            await store.StartWorkerAsync(new PoolScope(IntakeRig.Repo, "docs"), "w1", 90_000, DateTimeOffset.UtcNow, CancellationToken.None);
+        }
+
+        await server.Http.PostAsync("/v1/sweep", null);
+        var body = await UntilLast(server.Http);
+
+        Assert.Equal(1, body.GetProperty("last").GetProperty("repositories")[0].GetProperty("running").GetInt32());
+        var item = Assert.Single(body.GetProperty("needs_you_items").EnumerateArray());
+        Assert.Equal((IntakeRig.Repo, 1, "Plain", "Needs a look.", $"https://github.com/{IntakeRig.Repo}/issues/1"),
+            (item.GetProperty("repository").GetString(), item.GetProperty("issue").GetInt32(), item.GetProperty("title").GetString(), item.GetProperty("reason").GetString(), item.GetProperty("url").GetString()));
+        Assert.False(body.GetProperty("last").TryGetProperty("needs_you_items", out _));
+    }
+
+    [Fact]
     public async Task Non_owner_gets_403()
     {
         using var rig = NewRig();

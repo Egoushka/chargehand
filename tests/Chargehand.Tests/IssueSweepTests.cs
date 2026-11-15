@@ -183,6 +183,17 @@ public sealed class IssueSweepTests : IDisposable
     }
 
     [Fact]
+    public async Task The_report_lists_each_needs_owner_issue_with_the_sorters_reason()
+    {
+        _github.OpenIssuesByRepo[App] = [Issue(1, "Ask"), Issue(2, "Plain")];
+        _sorter.Verdicts["Ask"] = SweepVerdict.NeedsOwner;
+
+        var report = await Sweep(repositories: App).RunAsync("manual", CancellationToken.None);
+
+        Assert.Equal(new SweepNeedsYou(App, 1, "Ask", "Looks right.", $"https://github.com/{App}/issues/1"), Assert.Single(report.NeedsYouItems!));
+    }
+
+    [Fact]
     public async Task Matching_label_already_present_posts_no_comment()
     {
         _github.OpenIssuesByRepo[App] = [Issue(1, "Ask", labels: SweepLabels.NeedsYou)];

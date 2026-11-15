@@ -24,7 +24,34 @@ describe('the Sweep screen', () => {
       within(app)
         .getAllByRole('cell')
         .map((c) => c.textContent),
-    ).toEqual(['example/app', '3', '2', '1', '0', '0', '0', '—']);
+    ).toEqual(['example/app', '3', '2', '1', '1', '0', '0', '0', '—']);
+    expect(within(table).getByText('Running')).toBeTruthy();
+  });
+
+  it('lists the issues that need you with the reason and a link', async () => {
+    await open();
+    const list = screen.getByRole('region', { name: 'Needs you' });
+    expect(within(list).getByText('1 issue waits for you', { exact: false })).toBeTruthy();
+    const link = within(list).getByRole('link', { name: /#42 Pick a retention period/ });
+    expect(link.getAttribute('href')).toBe('https://github.com/example/app/issues/42');
+    expect(
+      within(list).getByText('The issue asks which retention to keep; that is the owner’s call.'),
+    ).toBeTruthy();
+  });
+
+  it('shows twenty needs-you issues and how many more', async () => {
+    const items = Array.from({ length: 23 }, (_, i) => ({
+      repository: 'example/app',
+      issue: i + 1,
+      title: `Question ${i + 1}`,
+      reason: 'Owner call.',
+      url: `https://github.com/example/app/issues/${i + 1}`,
+    }));
+    await open({ sweep: sweep({ needs_you_items: items }) });
+    const list = screen.getByRole('region', { name: 'Needs you' });
+    expect(within(list).getAllByRole('link', { name: /Question/ })).toHaveLength(20);
+    expect(within(list).getByText('and 3 more')).toBeTruthy();
+    expect(within(list).getByText('23 issues wait for you', { exact: false })).toBeTruthy();
   });
 
   it('shows a problem as its one line, once, in its row', async () => {

@@ -11,8 +11,19 @@ export interface SweepRepositoryBody {
   skipped: number;
   enqueued: number;
   deferred: number;
+  /** The task pool's claimed items for this repository now, read when the body is built. */
+  running: number;
   /** One line: what stops the sweep in this repository, with the fix. */
   problem?: string;
+}
+
+/** An issue the last sweep left to the owner, with the sorter's reason. */
+export interface SweepNeedsYouItem {
+  repository: string;
+  issue: number;
+  title: string;
+  reason: string;
+  url: string;
 }
 
 export interface SweepRunBody {
@@ -31,6 +42,8 @@ export interface SweepBody {
   last?: SweepRunBody & { finished: string; repositories: SweepRepositoryBody[] };
   next?: string;
   pool_holds: Array<{ repository: string; text: string; until: string }>;
+  /** Every issue of the last sweep whose verdict was needs-you. */
+  needs_you_items: SweepNeedsYouItem[];
 }
 
 export interface Setting<T> {
