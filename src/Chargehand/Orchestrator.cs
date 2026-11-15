@@ -66,7 +66,6 @@ public sealed class Orchestrator(
     /// since scanning the whole log on every run would cost more than the estimate it calibrates.</summary>
     private static readonly TimeSpan CalibrationHistoryTtl = TimeSpan.FromMinutes(5);
 
-    private readonly SemaphoreSlim _calibrationGate = new(1, 1);
     private IReadOnlyList<EstimateSample>? _calibrationHistory;
     private DateTimeOffset _calibrationHistoryAt = DateTimeOffset.MinValue;
 
@@ -324,33 +323,24 @@ public sealed class Orchestrator(
 
     /// <summary>The run log's history as <see cref="EstimateSample"/>s, rebuilt at most every <see cref="CalibrationHistoryTtl"/> (issue #427). A log that
     /// cannot list every record (<see cref="IRunLog.ReadAllAsync"/> is optional) calibrates against no history, which <see cref="EstimateCalibration"/>
-    /// already treats as too few samples and falls back on.</summary>
+    /// already treats as too few samples and falls back on. Unsynchronized: two runs racing a rebuild at once just rebuild twice, which costs more than it
+    /// corrupts — the cache is advisory, not a source of truth.</summary>
     private async Task<IReadOnlyList<EstimateSample>> CalibrationHistoryAsync(IPriceTable prices, CancellationToken ct)
     {
         if (_calibrationHistory is { } cached && DateTimeOffset.UtcNow - _calibrationHistoryAt < CalibrationHistoryTtl)
             return cached;
-        await _calibrationGate.WaitAsync(ct);
+        IReadOnlyList<EstimateSample> history;
         try
         {
-            if (_calibrationHistory is { } raced && DateTimeOffset.UtcNow - _calibrationHistoryAt < CalibrationHistoryTtl)
-                return raced;
-            IReadOnlyList<EstimateSample> history;
-            try
-            {
-                history = EstimateHistory.From((await runLog.ReadAllAsync(ct)).Runs, prices);
-            }
-            catch (NotSupportedException)
-            {
-                history = [];
-            }
-            _calibrationHistory = history;
-            _calibrationHistoryAt = DateTimeOffset.UtcNow;
-            return history;
+            history = EstimateHistory.From((await runLog.ReadAllAsync(ct)).Runs, prices);
         }
-        finally
+        catch (NotSupportedException)
         {
-            _calibrationGate.Release();
+            history = [];
         }
+        _calibrationHistory = history;
+        _calibrationHistoryAt = DateTimeOffset.UtcNow;
+        return history;
     }
 
     /// <summary>Exactly the five fields ADR 0040 and 0070 allow. The repository is the checkout's folder name, never its path; a commit that is not a hex id is left out, and so is a parent request id outside 1 to 128 characters.</summary>
