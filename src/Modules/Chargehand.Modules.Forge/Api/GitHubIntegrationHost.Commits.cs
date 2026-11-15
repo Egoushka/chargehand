@@ -22,6 +22,9 @@ public partial interface IIntegrationHost
 
 public sealed partial class GitHubIntegrationHost
 {
+    private static string? EnabledBy(JsonElement request) =>
+        request.ValueKind == JsonValueKind.Object && request.TryGetProperty("enabledBy", out var by) && by.ValueKind == JsonValueKind.Object && by.TryGetProperty("login", out var login) ? login.GetString() : null;
+
     public async Task DisableAutoMergeAsync(RemoteRepository repository, string nodeId, CancellationToken ct)
     {
         using var _ = await GraphQlAsync(repository, "turning auto-merge off", "mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){pullRequest{number}}}", new NodeVariables(nodeId), ct);

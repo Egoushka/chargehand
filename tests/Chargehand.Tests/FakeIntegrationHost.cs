@@ -44,8 +44,8 @@ internal sealed class FakeIntegrationHost : IIntegrationHost
         return BaseChecksFail is not null ? throw BaseChecksFail : Task.FromResult(BaseChecks);
     }
 
-    public static PrSnapshot Snapshot(string head = "aaaaaaa1", bool draft = true, string status = "DRAFT", bool autoMerge = false, bool merged = false, IReadOnlyList<CheckStatus>? checks = null) =>
-        new("PR_node", 7, head, "main", draft, merged, false, status, autoMerge, checks ?? [], []);
+    public static PrSnapshot Snapshot(string head = "aaaaaaa1", bool draft = true, string status = "DRAFT", bool autoMerge = false, bool merged = false, IReadOnlyList<CheckStatus>? checks = null, string? autoMergeBy = null) =>
+        new("PR_node", 7, head, "main", draft, merged, false, status, autoMerge, checks ?? [], [], autoMergeBy);
 
     /// <summary>The paths the pull request changes; not in <see cref="Calls"/>, like the checks gate.</summary>
     public IReadOnlyList<string> ChangedPaths { get; set; } = ["src/App.cs"];

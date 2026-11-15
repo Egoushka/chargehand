@@ -140,7 +140,7 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
     {
         if (migration is not null)
         {
-            await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand marked this pull request ready but does not merge it: it adds a database migration ({migration}). The repository owner merges it.", ct);
+            await CommentOnceAsync(target, pr, MigrationMarker, $"chargehand hands this pull request to you and does not merge it: it adds a database migration ({migration}). The repository owner merges it.", ct);
             await NeedsYouAsync(target, ct);
             return $"not merged because it adds a database migration ({migration})";
         }
@@ -149,16 +149,16 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
             var reason = gate == ChecksGate.None
                 ? $"its base branch {pr.BaseBranch} has no rule that requires a status check, so {host.Name} would merge it before CI runs"
                 : $"chargehand could not read the rules of its base branch {pr.BaseBranch}, so it cannot tell whether {host.Name} would wait for CI";
-            await CommentOnceAsync(target, pr, NoChecksMarker, $"chargehand marked this pull request ready but does not merge it: {reason}. Add a rule that requires your CI checks on {pr.BaseBranch} and chargehand will merge the next one; a person decides about this one.", ct);
+            await CommentOnceAsync(target, pr, NoChecksMarker, $"chargehand hands this pull request to you and does not merge it: {reason}. Add a rule that requires your CI checks on {pr.BaseBranch} and chargehand will merge the next one; a person decides about this one.", ct);
             Console.Error.WriteLine($"chargehand: warning: {target.Repository.Owner}/{target.Repository.Name} is set to merge, but {reason}; treated as ask");
             return $"not merged because {reason} (treated as ask)";
         }
         if (target.TestIntegrity is { } why)
         {
-            await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand marked this pull request ready but does not merge it: {why}. A person decides.", ct);
+            await CommentOnceAsync(target, pr, TestIntegrityMarker, $"chargehand hands this pull request to you and does not merge it: {why}. A person decides.", ct);
             return $"not merged because of test integrity ({why})";
         }
-        await CommentOnceAsync(target, pr, AskMarker, "chargehand marked this pull request ready. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
+        await CommentOnceAsync(target, pr, AskMarker, "chargehand hands this pull request to you. This repository's policy is \"ask\", so chargehand does not merge it; a person decides.", ct);
         return "the repository's policy is ask, so it is left for a person to merge";
     }
 

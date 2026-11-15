@@ -23,7 +23,7 @@ public sealed partial class GitHubIntake
         }
     }
 
-    private readonly HashSet<string> _approvalsTold = [];
+    private readonly HashSet<(string Pull, string What)> _approvalsTold = [];
 
     /// <summary>Every poll, for each open chargehand pull request of a repository that merges or asks: the integrator merges it, pinned to its head, when the App's own clean review covers that head and the checks are green;
     /// in a repository that does not merge it only turns off an auto-merge armed earlier. A merge happens nowhere else, so a push after the review (a CI fix, a round) is merged only once its own review is clean. The marker
@@ -42,22 +42,34 @@ public sealed partial class GitHubIntake
             _warn($"intake: {name}: approval not applied: {e.Message}");
             return;
         }
+        var open = pulls.Select(p => $"{name}#{p.Number.ToString(CultureInfo.InvariantCulture)}").ToHashSet(StringComparer.Ordinal);
+        _approvalsTold.RemoveWhere(t => t.Pull.StartsWith($"{name}#", StringComparison.Ordinal) && !open.Contains(t.Pull));
+        var merging = integrator!.Resolve(RemoteOf(name)) == IntegrationMode.Merge;
         foreach (var pull in pulls.Where(p => IsChargehandBranch(p.HeadBranch, p.SameRepository)))
         {
+            var id = $"{name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}";
             try
             {
-                var app = settings.AppLogin is { Length: > 0 } login ? await host.CommentBodiesByAsync(name, pull.Number, login, ct) : [];
+                var app = merging && settings.AppLogin is { Length: > 0 } login ? await host.CommentBodiesByAsync(name, pull.Number, login, ct) : [];
                 var reviewed = pull.HeadSha.Length >= 7 && app.Any(b => PullReviews.IsCleanComment(b, pull.HeadSha)) ? pull.HeadSha : "";
-                var result = await approver.ApproveAsync(new IntegrationTarget(RemoteOf(name), pull.Number, pull.HeadBranch, false, ""), reviewed, ct, appComments: app);
-                if (result.Action is IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.Asked && _approvalsTold.Add($"{name}#{pull.Number}@{pull.HeadSha}:{result.Action}"))
-                    _info($"intake: {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}: {result.Detail}");
+                var result = await approver.ApproveAsync(new IntegrationTarget(RemoteOf(name), pull.Number, pull.HeadBranch, false, ""), reviewed, ct, appComments: app, appLogin: settings.AppLogin,
+                    report: m => { if (m.StartsWith("auto-merge", StringComparison.Ordinal)) Tell(id, $"{pull.HeadSha}:auto-merge-off", m); });
+                if (result.Action is IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.Asked)
+                    Tell(id, $"{pull.HeadSha}:{result.Action}", result.Detail);
             }
             catch (Exception e) when (e is IntakeException or IntegrationException)
             {
-                if (_approvalsTold.Add($"{name}#{pull.Number}@{pull.HeadSha}:error"))
-                    _warn($"intake: {name}#{pull.Number.ToString(CultureInfo.InvariantCulture)}: approval not applied: {e.Message}");
+                if (_approvalsTold.Add((id, $"{pull.HeadSha}:error")))
+                    _warn($"intake: {id}: approval not applied: {e.Message}");
             }
         }
+    }
+
+    /// <summary>One info line per pull request, head and kind, not one per poll.</summary>
+    private void Tell(string pull, string what, string text)
+    {
+        if (_approvalsTold.Add((pull, what)))
+            _info($"intake: {pull}: {text}");
     }
 
     /// <summary>One line per reason a repository that is set to <c>merge</c> will never merge: a merge waits for chargehand's own clean review, and that needs the whole chain. Empty when it is complete.</summary>

@@ -133,20 +133,25 @@ public class ReviewMergeTests
         }
     }
 
-    [Fact]
-    public async Task An_auto_merge_armed_earlier_is_turned_off_on_the_poll()
+    [Theory]
+    [InlineData("merge", "chargehand", true)]
+    [InlineData("merge", "yehor", false)]
+    [InlineData("ask", "chargehand", true)]
+    [InlineData("ask", "yehor", false)]
+    public async Task Only_an_auto_merge_the_App_armed_is_turned_off_on_the_poll(string mode, string by, bool off)
     {
-        var (rig, host) = Make();
-        using (rig)
-        {
-            host.Current = host.Current with { AutoMerge = true };
-            await rig.Poll();
-            rig.OpenPull(9, Head, author: "chargehand[bot]", branch: Branch);
-            await rig.Poll();
+        var host = new FakeIntegrationHost { Current = new PrSnapshot("PR_node", 9, Head, "main", false, false, false, "CLEAN", true, Green, [], by) };
+        var policy = new IntegratorPolicy(new DrivenIntegrator(1, 2, "k", new Dictionary<string, string> { [IntakeRig.Repo] = mode }, null));
+        using var rig = new IntakeRig(Settings(), policy, approver: new Integrator(policy, host, delay: (_, _) => Task.CompletedTask));
+        await rig.Poll();
+        rig.OpenPull(9, Head, author: "chargehand[bot]", branch: Branch);
+        await rig.Poll();
+        await rig.Poll();
 
-            Assert.Contains("disable-auto-merge", host.Calls);
-            Assert.False(Merged(host, Head));
-        }
+        Assert.Equal(off, host.Calls.Contains("disable-auto-merge"));
+        Assert.Equal(!off, host.Current.AutoMerge);
+        Assert.False(Merged(host, Head));
+        Assert.Equal(off ? 1 : 0, rig.Infos.Count(i => i.Contains("auto-merge", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -201,19 +206,6 @@ public class ReviewMergeTests
 
             Assert.False(Merged(host, Head));
         }
-    }
-
-    [Fact]
-    public async Task A_repository_that_asks_still_has_an_armed_auto_merge_turned_off()
-    {
-        var host = new FakeIntegrationHost { Current = new PrSnapshot("PR_node", 9, Head, "main", false, false, false, "CLEAN", true, Green, []) };
-        var policy = new IntegratorPolicy(new DrivenIntegrator(1, 2, "k", new Dictionary<string, string> { [IntakeRig.Repo] = "ask" }, null));
-        using var rig = new IntakeRig(Settings(), policy, approver: new Integrator(policy, host, delay: (_, _) => Task.CompletedTask));
-        await rig.Poll();
-        rig.OpenPull(9, Head, author: "chargehand[bot]", branch: Branch);
-        await rig.Poll();
-
-        Assert.Contains("disable-auto-merge", host.Calls);
     }
 
     [Fact]

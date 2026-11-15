@@ -18,6 +18,11 @@ public sealed partial class Integrator
         return Say(report, IntegrationAction.AwaitingReview, "marked ready; chargehand merges it once its review of this head has no blocking finding and the required checks are green");
     }
 
+    /// <summary>GraphQL names a bot without the <c>[bot]</c> suffix its REST login carries; a person's own auto-merge is never turned off, so an unknown author or App login is not the App.</summary>
+    private static bool SameAccount(string? enabledBy, string? appLogin) =>
+        !string.IsNullOrEmpty(enabledBy) && !string.IsNullOrEmpty(appLogin)
+        && string.Equals(enabledBy.Replace("[bot]", "", StringComparison.OrdinalIgnoreCase), appLogin.Replace("[bot]", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase);
+
     private async Task NeedsYouAsync(IntegrationTarget target, CancellationToken ct)
     {
         try
@@ -33,7 +38,7 @@ public sealed partial class Integrator
     /// <summary>Run on every poll for a chargehand pull request. Auto-merge, if one was armed earlier, is turned off: a merge happens only here. When <paramref name="reviewedSha"/> (the head chargehand's own clean review
     /// covers; empty when none does) is still the head, the pull request is merged now, pinned to it, in a repository whose mode is merge, when it is ready, every required check is green, it changes no migration and
     /// carries none of the markers that ask a person instead. Checks still running return <see cref="IntegrationAction.AwaitingReview"/>; a moved head merges nothing, the next review of the new head decides.</summary>
-    public async Task<IntegrationResult> ApproveAsync(IntegrationTarget target, string reviewedSha, CancellationToken ct, Action<string>? report = null, IReadOnlyList<string>? appComments = null)
+    public async Task<IntegrationResult> ApproveAsync(IntegrationTarget target, string reviewedSha, CancellationToken ct, Action<string>? report = null, IReadOnlyList<string>? appComments = null, string? appLogin = null)
     {
         report ??= _ => { };
         var mode = ModeFor(target);
@@ -44,10 +49,10 @@ public sealed partial class Integrator
             var pr = await host.GetAsync(target.Repository, target.Number, ct);
             if (pr.Merged || pr.Closed)
                 return new(IntegrationAction.None, pr.Merged ? "the pull request is already merged" : "the pull request is closed");
-            if (pr.AutoMerge)
+            if (pr.AutoMerge && SameAccount(pr.AutoMergeBy, appLogin))
             {
                 await host.DisableAutoMergeAsync(target.Repository, pr.NodeId, ct);
-                report("auto-merge turned off: chargehand merges only the head its own review cleared");
+                report("auto-merge that chargehand armed turned off: chargehand merges only the head its own review cleared");
             }
             if (mode != IntegrationMode.Merge)
                 return new(IntegrationAction.None, "this repository does not merge by itself");

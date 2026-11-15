@@ -139,14 +139,28 @@ public class IntegratorTests
     [Fact]
     public async Task An_auto_merge_armed_earlier_is_turned_off_and_never_merges_a_head_no_review_cleared()
     {
-        var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", autoMerge: true, checks: Green) };
+        var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", autoMerge: true, checks: Green, autoMergeBy: "chargehand") };
 
-        var result = await Make(host).ApproveAsync(Target(), "", default);
+        var result = await Make(host).ApproveAsync(Target(), "", default, appLogin: "chargehand[bot]");
 
         Assert.Equal(IntegrationAction.None, result.Action);
         Assert.Contains("disable-auto-merge", host.Calls);
         Assert.False(host.Current.AutoMerge);
         Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("yehor")]
+    [InlineData(null)]
+    public async Task An_auto_merge_a_person_armed_is_left_on(string? by)
+    {
+        var host = new FakeIntegrationHost { Current = FakeIntegrationHost.Snapshot(draft: false, status: "BLOCKED", autoMerge: true, checks: Green, autoMergeBy: by) };
+
+        await Make(host).ApproveAsync(Target(), "", default, appLogin: "chargehand[bot]");
+        await Make(host, "ask").ApproveAsync(Target(), "", default, appLogin: "chargehand[bot]");
+
+        Assert.DoesNotContain("disable-auto-merge", host.Calls);
+        Assert.True(host.Current.AutoMerge);
     }
 
     [Fact]
