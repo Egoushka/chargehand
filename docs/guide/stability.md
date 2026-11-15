@@ -7,14 +7,14 @@ section: "Project"
 
 **Nothing is frozen yet.** This page is Task 6 of [the stability plan](../plans/2026-09-30-stability-1.0.md): a description of what a 1.0
 declaration would freeze and how it would be kept, written ahead of the declaration itself so the guard tests exist before anything is
-promised. The declaration is a separate, later step (the plan's Task 7): the maintainer writes it after 0.9's feedback, in its own pull
+promised (`tests/Chargehand.Tests/SchemaCompatTests.cs` is one). The declaration is a separate, later step (the plan's Task 7): the maintainer writes it after 0.9's feedback, in its own pull
 request, with its own ADR. Until then every surface below can still change in any release, including a breaking one. [ADR 0038](../adr/0038-stability-and-compatibility-policy.md), which would record the maintainer's decision on scope, does not exist yet — the ADR
 sequence currently runs 0037, then 0039 (see [Architecture decisions](decisions.md)) — so the scope here is the plan's proposal, not a
 decision.
 
 ## What would be frozen
 
-The plan proposes that chargehand's extension points are configuration and contracts, not a C# library: `Chargehand.Contracts` is the
+The plan proposes that chargehand's extension points are configuration and contracts, not a C# library: `Chargehand.Contracts` (`src/Chargehand.Contracts/`) is the
 only published library, and the interfaces inside the `Chargehand` tool package (`IWorkerRuntime`, `IMemoryProvider`,
 `IEvidenceResolver`, `IPriceTable`, `ISandbox`, and others) stay internal. On that reading:
 
@@ -31,19 +31,19 @@ only published library, and the interfaces inside the `Chargehand` tool package 
 | Output text of `verify` and `extensions check` | — | **not proposed as frozen**: only their exit codes would be | — |
 
 A frozen surface changes only additively after 1.0: a removal or a change of meaning waits for a 2.0, with its own schema major
-(`schemas/<name>/v2`, a new `$id`). Every row above already has a test that fails on a breaking change, ahead of any declaration — that
+(`schemas/<name>/v2`, a new `$id`; `tests/Chargehand.Tests/SchemaCompatTests.cs` fails an in-place breaking edit). Every row above already has a test that fails on a breaking change, ahead of any declaration — that
 is deliberate: the plan's rule is that the guard exists before the promise is made, not after.
 
 ## What stays free to change
 
 Proposed as not frozen, in any release: the C# types inside the `Chargehand` tool package (as opposed to `Chargehand.Contracts`), the
 text of messages and command output, the run log's format, prompts, and anything the guide marks experimental. These can change, including
-breaking, in a minor or even a patch release.
+breaking, in a minor or even a patch release. The published library is `src/Chargehand.Contracts/`; the tool package's types live in `src/Chargehand/`.
 
 ## How a change to a frozen surface is made
 
 - **Additive first.** A new field, enum value, flag or route is optional or chosen by its absence; nothing that already works stops
-  working.
+  working; `tests/Chargehand.Tests/PublicApiSnapshotTests.cs` fails a removal from the contracts' public API.
 - **A breaking change is a major.** It lands behind a new schema major (`schemas/<name>/v2`), never by editing a published `v1` file in
   place; `SchemaCompatTests` is what catches an in-place breaking edit before it merges.
 - **A deprecation runs for at least two minor versions.** The changelog entry that deprecates a key, flag, code or field says
