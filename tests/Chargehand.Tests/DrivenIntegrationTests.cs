@@ -38,27 +38,28 @@ public class DrivenIntegrationTests
     }
 
     [Fact]
-    public async Task A_finished_task_on_a_merge_repository_is_marked_ready_and_auto_merged_and_the_run_says_so()
+    public async Task A_finished_task_on_a_merge_repository_is_marked_ready_and_waits_for_chargehands_review()
     {
         var host = Host();
+        host.Current = host.Current with { Checks = [new CheckStatus("build", true, CheckOutcome.Passed, 1)] };
         using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host);
         List<RunStatus> events = [];
 
         var result = await rig.Run.RunAsync(One(), BatchId, Token, default, events.Add);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
-        Assert.Equal(["get", "behind main " + rig.Handover.Inputs[0].Branch, "ready", "get", "auto-merge aaaaaaa1", "get"], host.Calls);
+        // On GitHub a merge waits for chargehand's own review of the head (intake's poll); nothing arms the host's auto-merge.
+        Assert.DoesNotContain(host.Calls, c => c.StartsWith("auto-merge", StringComparison.Ordinal));
+        Assert.Equal(["get", "behind main " + rig.Handover.Inputs[0].Branch, "ready", "get"], host.Calls.Take(4));
         var told = events.Where(e => e.Event == RunEventKind.Integrated).Select(e => e.Detail).ToList();
         Assert.Equal("task t1: marked ready for review", told[0]);
-        Assert.Contains(told, d => d!.StartsWith("task t1: auto-merge (squash) enabled for aaaaaaa;", StringComparison.Ordinal));
-        Assert.Equal("task t1: merged", told[^1]);
+        Assert.Contains(told, d => d!.StartsWith("task t1: marked ready; chargehand merges it once its review of this head", StringComparison.Ordinal));
         Assert.All(events.Where(e => e.Event == RunEventKind.Integrated), e => Assert.Equal("t1", e.TaskId));
         var row = Row(result);
         Assert.Equal("completed", row.GetProperty("status").GetString());
-        Assert.StartsWith("integration: auto-merge (squash) enabled", row.GetProperty("detail").GetString());
-        Assert.EndsWith("; merged", row.GetProperty("detail").GetString());
+        Assert.StartsWith("integration: marked ready; chargehand merges it once its review", row.GetProperty("detail").GetString());
         // The pull request body says what happens to it.
-        Assert.Contains("enable auto-merge", rig.Handover.Inputs[0].PolicyNote);
+        Assert.Contains("merge it after chargehand's review", rig.Handover.Inputs[0].PolicyNote);
         // A finished task replaces the title and body of a pull request an earlier, partial one left for the branch.
         Assert.True(rig.Handover.Inputs[0].UpdateReused);
     }
@@ -334,12 +335,13 @@ public class DrivenIntegrationTests
     public async Task A_github_remote_never_asks_for_another_forge()
     {
         var host = Host();
+        host.Current = host.Current with { Checks = [new CheckStatus("build", true, CheckOutcome.Passed, 1)] };
         using var rig = new DrivenRunTests.Rig(integrator: Config(), integration: host, forgeFor: (_, _) => throw new InvalidOperationException("not for GitHub"));
 
         var result = await rig.Run.RunAsync(One(), BatchId, Token, default);
 
         Assert.Equal(ResultStatus.Completed, result.Status);
-        Assert.Contains("auto-merge aaaaaaa1", host.Calls);
-        Assert.Contains("GitHub merges it only once", rig.Handover.Inputs[0].PolicyNote);
+        Assert.Contains("ready", host.Calls);
+        Assert.Contains("merge it after chargehand's review", rig.Handover.Inputs[0].PolicyNote);
     }
 }

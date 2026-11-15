@@ -55,7 +55,9 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
     /// <summary>The sentence the pull request body says about what happens next, for a repository that is opted in; null where the draft-only text is still true (off, or a partial result).</summary>
     public string? Describe(RemoteRepository repository, bool partial) => partial ? null : policy.Resolve(repository) switch
     {
-        IntegrationMode.Merge => "Opened by chargehand as a draft. This repository lets chargehand mark it ready and merge it after chargehand's review of its head has no blocking finding, once every required check is green; chargehand never bypasses a rule."
+        IntegrationMode.Merge => (Reviewed(repository)
+                ? "Opened by chargehand as a draft. This repository lets chargehand mark it ready and merge it after chargehand's review of its head has no blocking finding, once every required check is green; chargehand never bypasses a rule."
+                : $"Opened by chargehand as a draft. This repository lets chargehand mark it ready and enable auto-merge, so {host.Name} merges it only once every required check and rule passes; chargehand never bypasses a rule.")
             + (CiFix.Attempts > 0 ? $" If a required check fails, chargehand makes up to {CiFix.Attempts.ToString(CultureInfo.InvariantCulture)} attempts to fix it on this branch." : ""),
         IntegrationMode.Ask => "Opened by chargehand as a draft. This repository asks first: chargehand marks it ready for review and does not merge it.",
         _ => null,
@@ -98,7 +100,9 @@ public sealed partial class Integrator(IntegratorPolicy policy, IIntegrationHost
                 report("marked ready for review");
                 pr = await host.GetAsync(target.Repository, target.Number, ct);
             }
-            return asked is not null ? Say(report, IntegrationAction.Asked, $"marked ready; {asked}") : await AwaitReviewAsync(target, pr, report, ct);
+            if (asked is not null)
+                return Say(report, IntegrationAction.Asked, $"marked ready; {asked}");
+            return await MergeStepAsync(target, pr, report, ct);
         }
         catch (IntegrationException e)
         {

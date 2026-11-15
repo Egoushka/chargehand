@@ -18,6 +18,39 @@ public sealed partial class Integrator
         return Say(report, IntegrationAction.AwaitingReview, "marked ready; chargehand merges it once its review of this head has no blocking finding and the required checks are green");
     }
 
+    /// <summary>Only GitHub has chargehand's review of a pull request (intake's <c>review_pulls</c>), so only there does a merge wait for it; another forge merges by the policy alone, as before.</summary>
+    private static bool Reviewed(RemoteRepository repository) => repository.Forge == ForgeKind.GitHub;
+
+    private Task<IntegrationResult> MergeStepAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct) =>
+        Reviewed(target.Repository) ? AwaitReviewAsync(target, pr, report, ct) : AutoMergeAsync(target, pr, report, ct);
+
+    /// <summary>A merge repository on a forge with no review of chargehand's: the forge's own auto-merge, pinned to the head, or a merge now when it is mergeable already.</summary>
+    private async Task<IntegrationResult> AutoMergeAsync(IntegrationTarget target, PrSnapshot pr, Action<string> report, CancellationToken ct)
+    {
+        if (pr.MergeStatus == "DIRTY")
+        {
+            await CommentOnceAsync(target, pr, ConflictMarker, "This pull request conflicts with its base branch, so chargehand is not merging it; a person needs to resolve it.", ct);
+            return Say(report, IntegrationAction.NeedsAttention, "the pull request conflicts with its base; not merged");
+        }
+        if (pr.AutoMerge)
+            return Say(report, IntegrationAction.AutoMergeEnabled, "auto-merge was already enabled");
+        if (pr.MergeStatus == "CLEAN")
+            return await MergeNowAsync(target, pr.HeadSha, report, ct);
+        try
+        {
+            await host.EnableAutoMergeAsync(target.Repository, pr.NodeId, pr.HeadSha, ct);
+        }
+        catch (IntegrationException)
+        {
+            // A forge may refuse auto-merge on a pull request that is mergeable already; then the merge itself goes through the same rules.
+            var fresh = await host.GetAsync(target.Repository, target.Number, ct);
+            if (fresh.IsDraft || fresh.MergeStatus is not ("CLEAN" or "UNSTABLE"))
+                throw;
+            return await MergeNowAsync(target, fresh.HeadSha, report, ct);
+        }
+        return Say(report, IntegrationAction.AutoMergeEnabled, $"auto-merge (squash) enabled for {Short(pr.HeadSha)}; {host.Name} merges once the required checks pass");
+    }
+
     /// <summary>GraphQL names a bot without the <c>[bot]</c> suffix its REST login carries; a person's own auto-merge is never turned off, so an unknown author or App login is not the App.</summary>
     private static bool SameAccount(string? enabledBy, string? appLogin) =>
         !string.IsNullOrEmpty(enabledBy) && !string.IsNullOrEmpty(appLogin)
