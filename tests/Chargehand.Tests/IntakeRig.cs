@@ -129,9 +129,14 @@ internal sealed class FakeGitHub : IIntakeHost
         return Task.CompletedTask;
     }
 
+    /// <summary>The create that fails with a 500 when this many issues exist already; null: none fails.</summary>
+    public int? CreateFailsAfter { get; set; }
+
     public Task<int> CreateIssueAsync(string repository, string title, string body, CancellationToken ct)
     {
         SweepCheck(repository);
+        if (CreatedIssues.Count == CreateFailsAfter)
+            throw new IntakeException("GitHub answered 500 to the create", 500);
         var number = 5000 + CreatedIssues.Count;
         CreatedIssues.Add((repository, title, body, number));
         return Task.FromResult(number);
