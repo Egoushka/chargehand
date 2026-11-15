@@ -56,8 +56,18 @@ public sealed class IntakeSources
         {
             if (SameSweep(_sweep, sweep))
                 return false;
+            var previous = _sweep;
             _sweep = sweep;
-            Save();
+            try
+            {
+                Save();
+            }
+            catch
+            {
+                // A value that did not reach the file is not in force either: the console says the save failed.
+                _sweep = previous;
+                throw;
+            }
             return true;
         }
     }
