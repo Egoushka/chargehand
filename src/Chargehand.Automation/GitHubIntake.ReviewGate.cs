@@ -25,6 +25,9 @@ public sealed partial class GitHubIntake
 
     private readonly HashSet<(string Pull, string What)> _approvalsTold = [];
 
+    /// <summary>A stopped task's pull request carries <c>[partial] </c> after its type (<c>PullRequestTitle</c>); it is never merged, even when a person marks it ready. A finished continuation replaces the title.</summary>
+    internal static bool IsPartial(string title) => title.Contains("[partial]", StringComparison.Ordinal);
+
     /// <summary>Every poll, for each open chargehand pull request of a repository that merges or asks: the integrator merges it, pinned to its head, when the App's own clean review covers that head and the checks are green;
     /// in a repository that does not merge it only turns off an auto-merge armed earlier. A merge happens nowhere else, so a push after the review (a CI fix, a round) is merged only once its own review is clean. The marker
     /// counts only at the start of a comment the App wrote. One pull request that cannot be read does not stop the others.</summary>
@@ -52,7 +55,7 @@ public sealed partial class GitHubIntake
             {
                 var app = merging && settings.AppLogin is { Length: > 0 } login ? await host.CommentBodiesByAsync(name, pull.Number, login, ct) : [];
                 var reviewed = pull.HeadSha.Length >= 7 && app.Any(b => PullReviews.IsCleanComment(b, pull.HeadSha)) ? pull.HeadSha : "";
-                var result = await approver.ApproveAsync(new IntegrationTarget(RemoteOf(name), pull.Number, pull.HeadBranch, false, ""), reviewed, ct, appComments: app, appLogin: settings.AppLogin,
+                var result = await approver.ApproveAsync(new IntegrationTarget(RemoteOf(name), pull.Number, pull.HeadBranch, IsPartial(pull.Title), ""), reviewed, ct, appComments: app, appLogin: settings.AppLogin,
                     report: m => { if (m.StartsWith("auto-merge", StringComparison.Ordinal)) Tell(id, $"{pull.HeadSha}:auto-merge-off", m); });
                 if (result.Action is IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.Asked)
                     Tell(id, $"{pull.HeadSha}:{result.Action}", result.Detail);

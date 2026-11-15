@@ -128,7 +128,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             return false;
         }
         var now = time.GetUtcNow();
-        state.Reviews.Add(new PullReview(name, pull.Number, pull.HeadSha, run, now));
+        state.Reviews.Add(new PullReview(name, pull.Number, pull.HeadSha, run, now, diff.Length > MaxDiff));
         Settle(key);
         return true;
     }
@@ -156,8 +156,10 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
 
     private static string Cut(string diff) => diff.Length <= MaxDiff ? diff : diff[..MaxDiff] + $"\n[diff truncated at {MaxDiff.ToString(CultureInfo.InvariantCulture)} characters]";
 
+    /// <summary>Only the App's own comments count when its login is known: anyone can post the marker on a public repository, and that would stop the review.</summary>
     private async Task<bool> HasCommentAsync(string repository, int number, string sha, CancellationToken ct) =>
-        (await host.CommentBodiesAsync(repository, number, ct)).Any(b => b.Contains(MarkerFor(sha), StringComparison.Ordinal));
+        (settings.AppLogin is { Length: > 0 } app ? await host.CommentBodiesByAsync(repository, number, app, ct) : await host.CommentBodiesAsync(repository, number, ct))
+        .Any(b => b.Contains(MarkerFor(sha), StringComparison.Ordinal));
 
     /// <summary>Comments the findings of the reviews that ended. A review whose server stopped without a result is dropped and its commit becomes reviewable again.</summary>
     /// <param name="onBlocking">Called with the round the blocking findings start, as chargehand's own comment (not an allowed author's).</param>
@@ -189,7 +191,7 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
         try
         {
             if (!await HasCommentAsync(review.Repository, review.Pull, review.Sha, ct))
-                await host.CommentAsync(review.Repository, review.Pull, Comment(review.Sha, result, settings.ReviewBlockConfidence), ct);
+                await host.CommentAsync(review.Repository, review.Pull, Comment(review.Sha, result, settings.ReviewBlockConfidence, review.Truncated), ct);
         }
         catch (IntakeException e) when (e.Status is 404 or 410)
         {
@@ -202,6 +204,8 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             return;
         if (!ReviewVerdict.IsClean(result.Claims, settings.ReviewBlockConfidence))
             await onBlocking(Round(review, result), ct);
+        else if (review.Truncated)
+            await host.SetLabelsAsync(review.Repository, review.Pull, [SweepLabels.NeedsYou], [], ct);
     }
 
     private void Done(PullReview review)
@@ -220,10 +224,11 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     }
 
     /// <summary>The comment for a finished review. Model text is neutralised: an @ gets a zero-width space so it pings no one, &lt; becomes an entity so it opens no HTML, and line breaks become spaces.</summary>
-    public static string Comment(string sha, ResultContract result, decimal blockAt = 0.8m)
+    public static string Comment(string sha, ResultContract result, decimal blockAt = 0.8m, bool truncated = false)
     {
         var text = new StringBuilder(MarkerFor(sha)).Append('\n');
-        if (result.Status == ResultStatus.Completed && ReviewVerdict.IsClean(result.Claims, blockAt))
+        // A review that read only the start of the diff clears nothing: the rest was never read.
+        if (!truncated && result.Status == ResultStatus.Completed && ReviewVerdict.IsClean(result.Claims, blockAt))
             text.Append(CleanMarkerFor(sha)).Append('\n');
         text.Append(GitHubIntake.Marker).Append("\n### chargehand review\n\n");
         if (result.Status == ResultStatus.Failed)
@@ -232,6 +237,8 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
             text.Append(CultureInfo.InvariantCulture, $"The review stopped with status `{result.Status.ToString().ToLowerInvariant()}`: {Plain(result.Summary, MaxSummary)}");
         else
             Findings(text, result);
+        if (truncated)
+            text.Append(CultureInfo.InvariantCulture, $"\n\nThe diff is longer than {MaxDiff.ToString(CultureInfo.InvariantCulture)} characters and the review read only its start, so chargehand does not merge this pull request; a person needs to.");
         text.Append(CultureInfo.InvariantCulture, $"\n\nRun `{result.TaskId}` at `{sha[..Math.Min(sha.Length, 12)]}`.");
         return text.ToString();
     }

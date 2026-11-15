@@ -56,6 +56,23 @@ public class ReviewMergeTests
     }
 
     [Fact]
+    public async Task A_partial_pull_request_a_person_marked_ready_is_never_merged()
+    {
+        var (rig, host) = Make();
+        using (rig)
+        {
+            await rig.Poll();
+            rig.OpenPull(9, Head, author: "chargehand[bot]", branch: Branch, title: "feat: [partial] Retry the call");
+            await rig.Poll();
+            rig.Log.Finish("run-1", ResultStatus.Completed, "Reviewed.");
+            await rig.Poll();
+            await rig.Poll();
+
+            Assert.False(Merged(host, Head));
+        }
+    }
+
+    [Fact]
     public async Task A_blocking_finding_merges_nothing()
     {
         var (rig, host) = Make();

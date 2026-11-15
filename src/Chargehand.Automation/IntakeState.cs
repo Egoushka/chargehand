@@ -21,7 +21,8 @@ public sealed record IntakeTask(string Repository, int Issue, string BatchRunId,
     bool Harvested = false);
 
 /// <summary>A review of a pull request's head commit that is running, or finished and not yet commented (ADR 0051). The run is a plain read-only run, not a driven batch.</summary>
-public sealed record PullReview(string Repository, int Pull, string Sha, string RunId, DateTimeOffset Started);
+/// <param name="Truncated">The diff was cut at <see cref="PullReviews.MaxDiff"/>: the review read only its start, so it never clears a merge.</param>
+public sealed record PullReview(string Repository, int Pull, string Sha, string RunId, DateTimeOffset Started, bool Truncated = false);
 
 /// <summary>A comment on a chargehand pull request that waits for a review round (ADR 0051): read once, kept here until a round takes it or the pull request makes it moot.</summary>
 /// <param name="Id"><c>r&lt;id&gt;</c> for an inline review comment, <c>c&lt;id&gt;</c> for a conversation comment: two id spaces, one list.</param>
