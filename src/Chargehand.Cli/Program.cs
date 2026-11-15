@@ -77,6 +77,9 @@ const string Usage = """
       routes [run-log.jsonl ...]   routing report per preset, node kind and model; suggestions only
       score <run-id> <0-1> [name]  records a hand score for a run (name defaults to quality)
       eval seed <cell> <run-id>... proposes eval items (JSONL on stdout) from runs in the log, for review
+      eval seed-human-fixes <edits.jsonl>
+                                   proposes eval items (JSONL on stdout) for review/worker, code/writer and driven/session from issue #452's
+                                   classified human-edits store, one per commit whose category names a lesson (CHARGEHAND issue #453)
       eval support <examples.jsonl> runs the support judge over labelled claims and prints agreement and every miss
       eval score-claims <claims.jsonl> --repo <dir> --commit <sha> [--out <verdicts.jsonl>]   resolves each claim's path:line locators at the commit and judges the cited text
       eval push <cell>             pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset
@@ -339,6 +342,11 @@ switch (argv)
         return 0;
     case ["eval", "seed", var cellName, .. var runIds]:
         foreach (var item in EvalRunner.Seed(Cell(cellName), await Task.WhenAll(runIds.Select(r => runLog.ReadAsync(r, ct)))))
+            Console.WriteLine(JsonSerializer.Serialize(item, ContractJson.Options));
+        return 0;
+    case ["eval", "seed-human-fixes", var editsFile]:
+        var edits = await new Chargehand.Modules.Oversight.Api.JsonlHumanEditStore(editsFile).ReadAsync(ct);
+        foreach (var item in HumanFixEvalSeed.Seed(EvalCell.Load(Path.Combine(root, "evals", "cells.json")), edits, root))
             Console.WriteLine(JsonSerializer.Serialize(item, ContractJson.Options));
         return 0;
     case ["eval", "push", var cellName]:
