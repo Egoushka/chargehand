@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.28](https://github.com/Egoushka/chargehand/compare/v0.19.27...v0.19.28) (2026-11-16)
+
+
+### Bug Fixes
+
+* **sweep:** ship the split preset's prompt block ([#972](https://github.com/Egoushka/chargehand/issues/972)) ([3aca067](https://github.com/Egoushka/chargehand/commit/3aca067eaed98d85b25c5b78876e14c4655c420a))
+
 ## [0.19.27](https://github.com/Egoushka/chargehand/compare/v0.19.26...v0.19.27) (2026-11-16)
 
 
