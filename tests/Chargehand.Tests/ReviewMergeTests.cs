@@ -17,15 +17,15 @@ public class ReviewMergeTests
 
     private static readonly DrivenIntegrator Driven = new(1, 2, "k", new Dictionary<string, string> { [IntakeRig.Repo] = "merge" }, null);
 
-    private static AutomationGitHub Settings() =>
-        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], ReviewPulls: true, AppLogin: "chargehand[bot]");
+    private static AutomationGitHub Settings(bool comments = true) =>
+        new(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], ReviewPulls: true, AppLogin: "chargehand[bot]", ReviewComments: comments);
 
-    private static (IntakeRig Rig, FakeIntegrationHost Host) Make(IReadOnlyList<CheckStatus>? checks = null, string head = Head)
+    private static (IntakeRig Rig, FakeIntegrationHost Host) Make(IReadOnlyList<CheckStatus>? checks = null, string head = Head, bool comments = true)
     {
         var host = new FakeIntegrationHost { Current = new PrSnapshot("PR_node", 9, head, "main", false, false, false, "CLEAN", false, checks ?? Green, []) };
         var policy = new IntegratorPolicy(Driven);
         var approver = new Integrator(policy, host, delay: (_, _) => Task.CompletedTask);
-        return (new IntakeRig(Settings(), policy, approver: approver), host);
+        return (new IntakeRig(Settings(comments), policy, approver: approver), host);
     }
 
     private static async Task Reviewed(IntakeRig rig, double? confidence, string sha = Head)
@@ -52,6 +52,52 @@ public class ReviewMergeTests
 
             Assert.True(Merged(host, Head));
             Assert.DoesNotContain(host.Calls, c => c.StartsWith("auto-merge", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task Quiet_review_a_clean_head_is_cleared_and_merged_with_zero_comments()
+    {
+        var (rig, host) = Make(comments: false);
+        using (rig)
+        {
+            await Reviewed(rig, null);
+            await rig.Poll();
+
+            Assert.Empty(rig.GitHub.Posted);
+            Assert.True(Merged(host, Head));
+        }
+    }
+
+    [Fact]
+    public async Task Quiet_review_a_blocking_finding_still_blocks_and_is_the_one_comment()
+    {
+        var (rig, host) = Make(comments: false);
+        using (rig)
+        {
+            await Reviewed(rig, 0.9);
+            await rig.Poll();
+
+            Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal));
+            var (_, body) = Assert.Single(rig.GitHub.Posted);
+            Assert.Contains("The loop never ends.", body);
+            Assert.False(PullReviews.IsCleanComment(body, Head));
+        }
+    }
+
+    [Fact]
+    public async Task Quiet_review_a_push_after_the_clearance_is_not_covered_by_it()
+    {
+        var (rig, host) = Make(comments: false, checks: [new("ci", true, CheckOutcome.Pending, 1)]);
+        using (rig)
+        {
+            await Reviewed(rig, null);
+            host.Current = host.Current with { Checks = Green };
+            rig.OpenPull(9, Moved, author: "chargehand[bot]", branch: Branch);
+            host.Current = host.Current with { HeadSha = Moved };
+            await rig.Poll();
+
+            Assert.DoesNotContain(host.Calls, c => c.StartsWith("merge", StringComparison.Ordinal));
         }
     }
 

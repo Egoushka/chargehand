@@ -54,7 +54,7 @@ public sealed partial class GitHubIntake
             try
             {
                 var app = merging && settings.AppLogin is { Length: > 0 } login ? await host.CommentBodiesByAsync(name, pull.Number, login, ct) : [];
-                var reviewed = pull.HeadSha.Length >= 7 && app.Any(b => PullReviews.IsCleanComment(b, pull.HeadSha)) ? pull.HeadSha : "";
+                var reviewed = pull.HeadSha.Length >= 7 && (_reviews.IsCleared(name, pull.Number, pull.HeadSha) || app.Any(b => PullReviews.IsCleanComment(b, pull.HeadSha))) ? pull.HeadSha : "";
                 var result = await approver.ApproveAsync(new IntegrationTarget(RemoteOf(name), pull.Number, pull.HeadBranch, IsPartial(pull.Title), ""), reviewed, ct, appComments: app, appLogin: settings.AppLogin,
                     report: m => { if (m.StartsWith("auto-merge", StringComparison.Ordinal)) Tell(id, $"{pull.HeadSha}:auto-merge-off", m); });
                 if (result.Action is IntegrationAction.Merged or IntegrationAction.Failed or IntegrationAction.Asked)

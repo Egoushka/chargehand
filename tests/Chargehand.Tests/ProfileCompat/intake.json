@@ -123,7 +123,8 @@
       "harvest": null,
       "review_block_confidence": 0.8,
       "app_login": null,
-      "subgate": null
+      "subgate": null,
+      "review_comments": true
     },
     "schedules": null,
     "account": null,

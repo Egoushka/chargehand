@@ -27,6 +27,9 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
     public static string CleanMarkerFor(string sha) => $"<!-- chargehand-review-clean {sha} -->";
 
     /// <summary>Whether an App comment is the review comment that cleared <paramref name="sha"/>: it starts with the review's own header, so model text quoted deeper in another comment never counts.</summary>
+    /// <summary>Whether a quiet review cleared <paramref name="sha"/> of this pull request; kept in the intake state, which only this server writes.</summary>
+    public bool IsCleared(string repository, int number, string sha) => state.Cleared.Contains(Key(repository, number, sha));
+
     public static bool IsCleanComment(string body, string sha) => body.StartsWith($"{MarkerFor(sha)}\n{CleanMarkerFor(sha)}", StringComparison.Ordinal);
 
     /// <summary>The name a review round shows for chargehand's own review: no <c>@</c>, which would ping an account and equal the mention.</summary>
@@ -188,9 +191,19 @@ internal sealed class PullReviews(AutomationGitHub settings, IIntakeHost host, I
 
     private async Task PostAsync(PullReview review, ResultContract result, Func<PendingReview, CancellationToken, Task> onBlocking, CancellationToken ct)
     {
+        var quiet = !settings.ReviewComments;
+        var clean = result.Status == ResultStatus.Completed && ReviewVerdict.IsClean(result.Claims, settings.ReviewBlockConfidence);
+        if (quiet && clean && !review.Truncated)
+            state.Cleared.Add(Key(review.Repository, review.Pull, review.Sha));
         try
         {
-            if (!await HasCommentAsync(review.Repository, review.Pull, review.Sha, ct))
+            // Quiet: only a blocking finding speaks. A clean, failed or stopped review is silent (a failed one is a warning in the log).
+            if (quiet && !(result.Status == ResultStatus.Completed && !clean))
+            {
+                if (result.Status != ResultStatus.Completed)
+                    warn($"intake: {review.Repository}#{review.Pull}: quiet review ended {result.Status.ToString().ToLowerInvariant()}, nothing posted: {Plain(result.Summary, MaxSummary)}");
+            }
+            else if (!await HasCommentAsync(review.Repository, review.Pull, review.Sha, ct))
                 await host.CommentAsync(review.Repository, review.Pull, Comment(review.Sha, result, settings.ReviewBlockConfidence, review.Truncated), ct);
         }
         catch (IntakeException e) when (e.Status is 404 or 410)

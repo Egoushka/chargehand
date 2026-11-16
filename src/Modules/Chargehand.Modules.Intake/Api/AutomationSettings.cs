@@ -60,12 +60,13 @@ public sealed record AutomationSettings(AutomationGitHub? Github = null, Automat
 /// these labels waits ahead of one with a label later in the list, or none; one with more than one of them is not ranked by it, the same as having none. Checked before source, size and age.</param>
 /// <param name="Subgate">Subgate's admission before a start on the subscription: a hold queues the start (reason <c>subscription share</c>); null: off (default), and unreachable means the start goes on.</param>
 /// <param name="Harvest">The quota harvester (issue #792): issues with its label wait for the end of a subscription window that still has quota left; null: off, and they start like any other.</param>
+/// <param name="ReviewComments">Post a comment for every finished review (default true). Off is quiet mode: a clean review is recorded in the intake state, clears the head for a merge and posts nothing; only a blocking finding posts its one comment.</param>
 /// <param name="ReviewBlockConfidence">A review finding at or above this confidence blocks a merge and starts a review round (default 0.8); a review with none is the approval.</param>
 /// <param name="AppLogin">The integrator App's login (<c>&lt;slug&gt;[bot]</c>), whose pull requests <paramref name="ReviewPulls"/> also reviews; left out, it is read from the integrator's <c>app_slug</c>.</param>
 public sealed partial record AutomationGitHub(IReadOnlyDictionary<string, AutomationRepository>? Repositories = null, IReadOnlyList<string>? AllowedAuthors = null, string Label = "chargehand",
     string Mention = "@chargehand", int PollSeconds = 120, string BudgetClass = "M", long MaxTokensTotal = 2_000_000, decimal MaxUsdTotal = 5m, int MaxConcurrent = 2, int? MaxStartsPerDay = null, int MaxReviewRounds = 3,
     bool ReviewPulls = false, int? MaxReviewsPerDay = null, bool Discover = false, int MaxReviewBacklog = 3, bool SubscriptionBlock = false, int MaxStartsPerHour = 30, int BreakerCooldownMinutes = 120,
-    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null, decimal ReviewBlockConfidence = 0.8m, string? AppLogin = null, AutomationSubgate? Subgate = null)
+    IReadOnlyList<string>? PriorityLabels = null, AutomationHarvest? Harvest = null, decimal ReviewBlockConfidence = 0.8m, string? AppLogin = null, AutomationSubgate? Subgate = null, bool ReviewComments = true)
 {
     /// <summary>Where discovered repositories are cloned, under <c>worker_root</c>.</summary>
     public const string ClonesDirectory = "repos";
