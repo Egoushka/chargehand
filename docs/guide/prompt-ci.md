@@ -17,6 +17,7 @@ Changed files map to the eval cells in [evals/cells.json](../../evals/cells.json
 |---|---|---|---|---|
 | `cheap/worker` | `cheap` | `prompts/core/worker.md`, `prompts/preset/cheap.md`, `presets/cheap.yaml` | 0.10 | +30% |
 | `review/worker` | `review` | `prompts/preset/review.md`, `presets/review.yaml` | 0.10 | +30% |
+| `split/worker` | `split` | `prompts/preset/split.md`, `presets/split.yaml` | 0.10 | +30% |
 | `design/worker` | `design` | `prompts/preset/design.md`, `presets/design.yaml` | 0.10 | +30% |
 | `incident/worker` | `incident` | `prompts/preset/incident.md`, `presets/incident.yaml` | 0.10 | +30% |
 | `release-notes/worker` | `release-notes` | `prompts/preset/release-notes.md`, `presets/release-notes.yaml` | 0.10 | +30% |
