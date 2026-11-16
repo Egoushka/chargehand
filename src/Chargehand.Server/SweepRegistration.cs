@@ -23,11 +23,9 @@ internal static class SweepRegistration
         var state = new SweepState(Path.Combine(parts.Directory, "sweep.json"));
         services.AddSingleton(sp =>
         {
-            var splitter = new EpicSplitter(parts.Host, new RunServiceStarter(sp.GetRequiredService<RunService>(), account), log, async (repository, ct) =>
-            {
-                var path = parts.Repositories[repository].Path;
-                return new RepositoryRef(path, await parts.Heads.CurrentCommitAsync(path, ct));
-            }, Path.Combine(parts.Directory, "split.json"), clock, warn);
+            // Through intake's checkout rules: the server's checkouts are read-only mounts, which git cannot fetch into.
+            var splitter = new EpicSplitter(parts.Host, new RunServiceStarter(sp.GetRequiredService<RunService>(), account), log,
+                (repository, ct) => intake.SweepCheckoutAsync(repository, parts.Repositories[repository].Path, ct), Path.Combine(parts.Directory, "split.json"), clock, warn);
             var pool = sp.GetRequiredService<TaskPool>();
             var events = settings.Events?.Log ?? new NoEvents();
             SweepHost? host = null;

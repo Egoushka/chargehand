@@ -70,6 +70,21 @@ public class ReadOnlyCheckoutTests
         Assert.Contains(rig.Infos, i => i.Contains("intake: octo/repo: /srv/repos/repo cannot be written", StringComparison.Ordinal));
     }
 
+    /// <summary>2026-11-16: the first sweep on the box sorted 7 epics and split none. The splitter fetched the read-only checkout itself, and every split threw before it started.</summary>
+    [Fact]
+    public async Task The_sweeps_checkout_of_a_read_only_mount_is_the_managed_clone()
+    {
+        using var dir = new TempDir();
+        var clones = Clones(dir);
+        using var rig = new IntakeRig(new AutomationGitHub(new Dictionary<string, AutomationRepository> { [IntakeRig.Repo] = new("/srv/repos/repo") }, [IntakeRig.Author], MaxConcurrent: 5), clones: clones);
+        rig.Heads.ReadOnly["/srv/repos/repo"] = new ReadOnlyCheckoutException("cannot open '.git/FETCH_HEAD': Read-only file system", Url, Old);
+
+        var source = await rig.Intake.SweepCheckoutAsync(IntakeRig.Repo, "/srv/repos/repo", default);
+
+        Assert.Equal(new RepositoryRef(clones.PathOf(IntakeRig.Repo), rig.Heads.Commit), source);
+        Assert.Contains(rig.Infos, i => i.Contains("sweep: octo/repo: /srv/repos/repo cannot be written", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task A_read_only_checkout_whose_remote_cannot_be_cloned_starts_from_the_commit_it_has_and_says_so()
     {

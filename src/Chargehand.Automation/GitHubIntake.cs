@@ -45,6 +45,8 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
     private readonly string[] _priorityLabels = [.. settings.EffectivePriorityLabels];
     private readonly Dictionary<(string Repository, int Number), IntakePull> _pulls = [];
     private readonly CheckoutSources _checkouts = new(heads, clones, "intake", warn ?? Warned, info ?? Informed);
+    // The sweep's own: CheckoutSources is not thread-safe, and a sweep runs beside the poll.
+    private readonly CheckoutSources _sweepCheckouts = new(heads, clones, "sweep", warn ?? Warned, info ?? Informed);
     private readonly PullReviews _reviews = new(settings, host, log, state, clock ?? TimeProvider.System, warn ?? Warned);
     private readonly ReviewBacklog _backlog = new(settings, host, state);
     private readonly ScopeOverlap _overlap = new(host, state);
@@ -133,6 +135,10 @@ public sealed partial class GitHubIntake(AutomationGitHub settings, IIntakeHost 
 
     /// <summary>The repositories the last poll watched (before the first, the profile's), switched off or not.</summary>
     public IReadOnlyDictionary<string, WatchedRepository> Watched => _watched;
+
+    /// <summary>The checkout and commit a sweep's run (an epic's split) starts from: <paramref name="path"/> fetched now, or the managed clone when git cannot write it, as for a batch.</summary>
+    /// <exception cref="IntakeException">The checkout could not be fetched and has no default branch.</exception>
+    public Task<RepositoryRef> SweepCheckoutAsync(string repository, string path, CancellationToken ct) => _sweepCheckouts.CurrentAsync(repository, path, ct);
 
     /// <summary>Polls until <paramref name="ct"/> ends. A failed poll is reported and tried again at the next one.</summary>
     public async Task RunAsync(IBatchStarter starter, CancellationToken ct)
