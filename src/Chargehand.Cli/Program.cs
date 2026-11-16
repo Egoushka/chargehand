@@ -683,6 +683,17 @@ EventService? EventLog(EventsSettings? events) =>
         : new EventService(SqliteEventLog.Open(events.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "events.db")),
             [.. (events.Tokens ?? []).Select(t => (t.Grant(), profile.Secret(t.Secret)))]);
 
+// Signals (P06): off unless http.events.signals.enabled; a judge run is a cheap read-only run of its own, recorded like the autopsy's.
+SignalWatcher? SignalWatcherFor(EventsSettings? settings, EventService? events, Orchestrator orchestrator)
+{
+    if (settings?.Signals is not { Enabled: true, Items: { Count: > 0 } items } signals || events is null)
+        return null;
+    Chargehand.Modules.Oversight.Api.AutopsyRunner run = (request, runId, parentRunId, token) => orchestrator.RunAsync(request, token, runId, parentRunId: null, actor: null);
+    var checker = new Chargehand.Modules.Oversight.Api.SignalChecker([.. items.Select(i => new Chargehand.Modules.Oversight.Api.Signal(i.Id, i.Text))],
+        new Chargehand.Modules.Oversight.Api.ModelSignalJudge(run, signals.Preset), signals.MaxChecksPerDay, (_, _) => Task.CompletedTask);
+    return new SignalWatcher(events.Log, checker, new Chargehand.Modules.Oversight.Api.SignalHitStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "signals", "hits.jsonl")));
+}
+
 /// <summary>Restores each new checkout ahead of its agent (ADR 0090), each step in the sandbox sessions use (ADR 0035): pnpm packages go to a content-addressed store of the checkout's own repository beside the checkouts, the only place besides the checkout a step may write, so one repository cannot plant packages another links; NuGet packages go to a per-run staging folder, and only the ones whose signature verifies are promoted, outside the sandbox, into the one shared cache. The network is the profile's <c>sandbox.network</c>, so a cold fill needs it on.</summary>
 CacheWarmer? CacheWarmerFor(EventService? events)
 {
@@ -777,7 +788,7 @@ async Task<int> Serve()
         Profile: profile, SecretPresent: SecretResolves, IntakeStatePath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "intake", "github.json"),
         InboxDismissalsPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "inbox", "dismissed.json"), DailyWarningPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "daily-warning.json"), RunApprovalPath: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "limits", "run-approval.json"), Access: http.CloudflareAccess, ProxySignIn: http.ProxySignIn, Probes: HealthProbes(),
         Conversations: http.Conversations, ConversationsDirectory: Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "conversations"),
-        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator), Events: events, Warmer: CacheWarmerFor(events),
+        ConversationRuntime: ConversationRuntime(http.Conversations, orchestrator), Events: events, Warmer: CacheWarmerFor(events), Signals: SignalWatcherFor(http.Events, events, orchestrator),
         Pool: http.Pool is { } pool ? pool with { Database = pool.Database ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(runLogPath))!, "pool.db") } : null),
         orchestrator, runLog, drivenRun, GitHubIntake(drivenRun), Schedules(drivenRun), PhoneAnswers());
     await app.StartAsync(ct);

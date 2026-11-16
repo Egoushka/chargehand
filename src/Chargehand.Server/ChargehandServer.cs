@@ -55,6 +55,7 @@ namespace Chargehand.Server;
 /// <param name="Events">The event log of <c>http.events</c> (ADR 0090); null: <c>/v1/events</c> and <c>/v1/threads</c> are not mapped.</param>
 /// <param name="ConversationsDirectory">Where the conversations' journals live (<c>conversations/</c> beside the run log); needed with <paramref name="Conversations"/>.</param>
 /// <param name="ConversationRuntime">The runtime conversations reach agents through; null: the module's fake.</param>
+/// <param name="Signals">Checks each thread that closes against the owner's signals (P06); null: none is.</param>
 /// <param name="Warmer">Restores each checkout the event log announces (ADR 0090); null: none is warmed.</param>
 /// <param name="Pool">The profile's <c>http.pool</c> with its database path (ADR 0099); null: the pool is off and the <c>enqueue</c> tool refuses.</param>
 public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirectory, string Listen = "127.0.0.1",
@@ -64,7 +65,7 @@ public sealed record ServerSettings(int Port, string ApiKey, string PresetsDirec
     CloudflareAccessSettings? Access = null, Func<CancellationToken, Task<string>>? AccessCerts = null,
     ProxySignInSettings? ProxySignIn = null, Func<string, CancellationToken, Task<System.Net.IPAddress[]>>? ProxyResolver = null,
     IReadOnlyList<DependencyProbe>? Probes = null, ConversationSettings? Conversations = null, string? ConversationsDirectory = null, IConversationRuntime? ConversationRuntime = null,
-    EventService? Events = null, CacheWarmer? Warmer = null, TaskPoolSettings? Pool = null);
+    EventService? Events = null, CacheWarmer? Warmer = null, TaskPoolSettings? Pool = null, SignalWatcher? Signals = null);
 
 /// <summary>
 /// The v1 HTTP interface and MCP server (ADR 0014, ADR 0018), on 127.0.0.1 unless the profile opens it (ADR 0024): POST /v1/runs, GET /v1/runs/{id},
@@ -155,6 +156,8 @@ public static partial class ChargehandServer
                 .AddHostedService<ConversationHost>();
         if (settings.Warmer is { } warmer)
             builder.Services.AddHostedService(_ => new CacheWarmerHost(warmer));
+        if (settings.Signals is { } signals)
+            builder.Services.AddHostedService(_ => new SignalWatcherHost(signals));
         // Issue #425: the session images against every runner's allowlist, at the start and then periodically.
         if (driven?.Enabled == true)
             builder.Services.AddHostedService(_ => new ImagePreflight(ImagePreflight.Every, driven.ImageMismatchesAsync));
