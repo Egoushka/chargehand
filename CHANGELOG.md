@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.27](https://github.com/Egoushka/chargehand/compare/v0.19.26...v0.19.27) (2026-11-16)
+
+
+### Bug Fixes
+
+* **sweep:** split an epic from the managed clone when the checkout is read-only ([#970](https://github.com/Egoushka/chargehand/issues/970)) ([128f87d](https://github.com/Egoushka/chargehand/commit/128f87d43bdc762d6932cc2ae3c0aa6613008bc4))
+
 ## [0.19.26](https://github.com/Egoushka/chargehand/compare/v0.19.25...v0.19.26) (2026-11-15)
 
 
