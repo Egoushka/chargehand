@@ -11,6 +11,7 @@ it, edits it if needed, and submits it by hand.
 |---|---|---|
 | [`awesome-mcp-servers.md`](awesome-mcp-servers.md) | An "awesome MCP servers" list | The maintainer, by pull request against that list's own repository. |
 | [`awesome-claude-code.md`](awesome-claude-code.md) | `awesome-claude-code` | The maintainer, through that project's web submission form (human submissions only, open since 2026-10-10 per the plan). |
+| [`prompts-chat.md`](prompts-chat.md) | prompts.chat, as an Agent Skill entry | The maintainer, through the web form or the `save_skill` MCP tool with their own API key. Check the CC0 licence note in the draft first. |
 | [`mcp-registry.md`](mcp-registry.md) | The MCP Registry | Nobody: the entry already exists (`io.github.Egoushka/chargehand`, listed from 0.4.1, [ADR 0027](../adr/0027-dnx-package-and-mcp-registry.md)). This file is a record of the blurb the registry shows, reused verbatim from `.mcp/server.json`, in case the maintainer wants to check it against a future listing update. |
 | [`launch-post.md`](launch-post.md) | A launch/announcement post (forum, social, blog — venue not decided) | The maintainer, wherever and whenever they choose. |
 
