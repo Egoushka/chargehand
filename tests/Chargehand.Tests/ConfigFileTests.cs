@@ -42,6 +42,20 @@ public class ConfigFileTests
         }
     }
 
+    /// <summary>A run of a preset reads <c>prompts/preset/&lt;name&gt;.md</c> beside each node kind's core block; a missing one fails every run at its start
+    /// (the split preset shipped without it). A driven preset runs the change skill in its container instead.</summary>
+    [Theory]
+    [MemberData(nameof(Presets))]
+    public void Shipped_presets_have_their_prompt_blocks(string file)
+    {
+        var preset = Chargehand.Config.Preset.Load(Repo.Path("presets"), file[..^5]);
+        if (preset.Driven is not null)
+            return;
+        var registry = new Chargehand.Modules.Research.Api.PromptRegistry(Repo.Path("prompts"));
+        foreach (var kind in preset.NodeKinds.Keys)
+            Assert.Equal(2, registry.ForNode(preset.Name, kind).Count);
+    }
+
     /// <summary>Spec decision 2: naked by default. Services belong to a user's own preset; the guide shows one.</summary>
     [Theory]
     [MemberData(nameof(Presets))]
