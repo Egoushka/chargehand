@@ -97,6 +97,9 @@ public sealed class IntakeState
     /// <summary>Head commits already given a review, as <c>owner/repo#12@sha</c>; it only grows, so a commit is reviewed once.</summary>
     public HashSet<string> Reviewed { get; init; } = [];
 
+    /// <summary>Head commits a quiet review (<c>review_comments</c> off) found clean, as <c>owner/repo#12@sha</c>: the merge gate reads them where it would read the clean comment. Only grows.</summary>
+    public HashSet<string> Cleared { get; init; } = [];
+
     /// <summary>Repositories whose trigger label intake has made sure of (created when it was missing), so each is checked once.</summary>
     public HashSet<string> Labeled { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -143,6 +146,7 @@ public sealed class IntakeState
             Waiting = state.Waiting ?? [],
             Triggers = state.Triggers ?? [],
             Reviewed = state.Reviewed ?? [],
+            Cleared = state.Cleared ?? [],
             Reviews = state.Reviews ?? [],
             Labeled = new HashSet<string>(state.Labeled ?? [], StringComparer.OrdinalIgnoreCase),
         };
