@@ -75,4 +75,25 @@ public sealed class PoolOverviewReadsTests
         cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name = 'items_done';";
         Assert.Equal(1L, cmd.ExecuteScalar());
     }
+
+    [Fact]
+    public void A_file_already_at_the_current_version_still_gets_the_issue_index()
+    {
+        using var kit = new PoolKit();
+        kit.Store.Dispose();
+        using (var raw = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={kit.DbPath};Pooling=False"))
+        {
+            raw.Open();
+            using var drop = raw.CreateCommand();
+            drop.CommandText = "DROP INDEX IF EXISTS items_issue;";
+            drop.ExecuteNonQuery();
+        }
+
+        using var reopened = SqlitePoolStore.Open(kit.DbPath);
+        using var check = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={kit.DbPath};Pooling=False");
+        check.Open();
+        using var cmd = check.CreateCommand();
+        cmd.CommandText = "SELECT group_concat(name) FROM pragma_index_info('items_issue');";
+        Assert.Equal("repository,issue", cmd.ExecuteScalar());
+    }
 }
