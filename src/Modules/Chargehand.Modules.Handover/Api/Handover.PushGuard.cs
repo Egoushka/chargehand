@@ -49,7 +49,10 @@ public sealed partial class Handover
         if (log.ExitCode != 0 || log.Truncated)
             return;
         var touched = log.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim('\n')).Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).ToList();
-        var junk = PushGuard.FindJunk(touched).Select(j => j.Path).Distinct(StringComparer.Ordinal).ToList();
+        var links = await GitlinksAsync(scratch, env, range, ct);
+        if (links is null)
+            return;
+        var junk = PushGuard.FindJunk(touched).Select(j => j.Path).Concat(links).Distinct(StringComparer.Ordinal).ToList();
         if (junk.Count == 0)
             return;
         var list = await GitProcess.RunAsync(scratch, env, ["rev-list", "--reverse", "--topo-order", range], GitTimeout, ct);
@@ -119,9 +122,12 @@ public sealed partial class Handover
         if (log.ExitCode != 0 || log.Truncated)
             return run.Refuse("chargehand could not list the paths the branch's commits touch; nothing was pushed", ErrorCode.SessionFailed, changed: changed, commit: commit);
         var touched = log.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim('\n')).Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).ToList();
-        var junk = PushGuard.FindJunk(touched);
+        var links = await GitlinksAsync(scratch, env, range, ct);
+        if (links is null)
+            return run.Refuse("chargehand could not list the modes the branch's commits touch; nothing was pushed", ErrorCode.SessionFailed, changed: changed, commit: commit);
+        var junk = PushGuard.FindJunk(touched).Select(j => $"{j.Kind}: {j.Path}").Concat(links.Select(l => $"gitlink: {l}")).ToList();
         if (junk.Count > 0)
-            return run.Refuse($"the branch carries scratch output ({Named(junk.Select(j => $"{j.Kind}: {j.Path}").ToList())}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, commit: commit);
+            return run.Refuse($"the branch carries scratch output ({Named(junk)}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, commit: commit);
         if (touched.Count > PushGuard.MaxBranchFiles)
             return run.Refuse(string.Create(CultureInfo.InvariantCulture, $"the branch's commits touch {touched.Count} files, more than {PushGuard.MaxBranchFiles}, which is generated output rather than a change; nothing was pushed"),
                 ErrorCode.SessionFailed, changed: changed, commit: commit);
@@ -131,6 +137,26 @@ public sealed partial class Handover
         if (large.Count > 0)
             return run.Refuse($"the branch's commits carry files over {PushGuard.MaxFileBytes / 1024 / 1024} MiB ({Named(large)}); nothing was pushed", ErrorCode.SessionFailed, changed: changed, commit: commit);
         return null;
+    }
+
+    /// <summary>Issue 912: the paths the commits of <paramref name="range"/> record as a gitlink (mode 160000), which is what a checkout or worktree nested in the workspace becomes under <c>git add -A</c>;
+    /// a pull request must not carry one, and the nested <c>.git</c> it stands for is never in a tree. Null when git fails.</summary>
+    private static async Task<List<string>?> GitlinksAsync(string scratch, IReadOnlyDictionary<string, string> env, string range, CancellationToken ct)
+    {
+        var raw = await GitProcess.RunAsync(scratch, env, ["log", "-m", "--raw", "-z", "--no-renames", "--no-abbrev", "--format=", range], GitTimeout, ct, MaxDiffBytes);
+        if (raw.ExitCode != 0 || raw.Truncated)
+            return null;
+        var fields = raw.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        List<string> links = [];
+        for (var i = 0; i + 1 < fields.Length; i++)
+        {
+            var meta = fields[i].Trim('\n');
+            if (meta.StartsWith(':') && meta.Split(' ') is { Length: >= 2 } parts && (parts[0] == ":160000" || parts[1] == "160000"))
+                links.Add(fields[i + 1]);
+            if (meta.StartsWith(':'))
+                i++;
+        }
+        return [.. links.Distinct(StringComparer.Ordinal)];
     }
 
     /// <summary>The paths of the blobs over <see cref="PushGuard.MaxFileBytes"/> that the commits of <paramref name="range"/> add: <c>rev-list --filter=blob:limit</c> prints the blobs it
