@@ -140,7 +140,7 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
             }
             var reason = result is null ? "failed: lost" : result.Status == ResultStatus.Completed ? null : "failed: " + result.Status.ToString().ToLowerInvariant();
             await target.DoneAsync([.. items.Select(i => i.Key)], reason, ct).ConfigureAwait(false);
-            breaker?.Finished(items[0].Repository, result is { Status: ResultStatus.Failed } && result.Error?.Code != ErrorCode.Cancelled);
+            breaker?.Finished(items[0].Repository, CountsAsFailure(result));
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
@@ -151,6 +151,10 @@ internal sealed class PoolRunStarter(RunService runs, AccountSettings? account, 
             await ReleaseQuietlyAsync(target, worker).ConfigureAwait(false);
         }
     }
+
+    /// <summary>Whether a run's end counts toward the breaker: a lost run (no result) failed, a cancelled one did not.</summary>
+    internal static bool CountsAsFailure(ResultContract? result) =>
+        result is null || result is { Status: ResultStatus.Failed } && result.Error?.Code != ErrorCode.Cancelled;
 
     private async Task ReleaseQuietlyAsync(TaskPool target, string worker)
     {

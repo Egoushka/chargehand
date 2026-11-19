@@ -30,4 +30,15 @@ public sealed class PoolRunStarterTests
         Assert.Equal("S", PoolRunStarter.LargestSize([Item("a", size: "S")]));
         Assert.Null(PoolRunStarter.LargestSize([Item("a")]));
     }
+
+    [Fact]
+    public async Task A_lost_run_counts_as_a_breaker_failure()
+    {
+        var breaker = new PoolBreakerCheck(null, TimeProvider.System);
+        var scope = new PoolScope("owner/app", "docs");
+        Assert.True(PoolRunStarter.CountsAsFailure(null));
+        for (var i = 0; i < PoolBreakerCheck.Failures; i++)
+            breaker.Finished(scope.Repository, PoolRunStarter.CountsAsFailure(null));
+        Assert.NotNull(await breaker.HoldAsync(scope, CancellationToken.None));
+    }
 }
