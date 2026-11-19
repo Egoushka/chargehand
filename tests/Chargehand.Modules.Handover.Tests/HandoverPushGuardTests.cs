@@ -79,6 +79,42 @@ public class HandoverPushGuardTests
         Assert.DoesNotContain(".tmp/nuget.lock", Git(f.Remote, "log", "--name-only", "--format=", $"{f.BaseCommit}..chargehand/run1"), StringComparison.Ordinal);
     }
 
+    private static void NestedCheckout(string dir, string name)
+    {
+        var nested = Path.Combine(dir, name);
+        Directory.CreateDirectory(nested);
+        Git(nested, "init", "--quiet");
+        Write(nested, "base.txt");
+        Git(nested, "add", "-A");
+        Git(nested, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "-m", "base");
+    }
+
+    [Fact]
+    public async Task A_gitlink_beside_a_real_change_is_dropped_and_the_real_change_is_pushed()
+    {
+        using var f = new HandoverTests.Fixture(edit: dir => NestedCheckout(dir, ".basecheck"));
+        var prs = new HandoverTests.FakePullRequests();
+
+        var outcome = await new Handover(new HandoverTests.FakeVerifier(), prs).RunAsync(f.Input(), default);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.Contains("retry.txt", outcome.ChangedPaths);
+        Assert.DoesNotContain(".basecheck", outcome.ChangedPaths);
+        Assert.DoesNotContain("160000", Git(f.Remote, "ls-tree", "-r", "chargehand/run1"), StringComparison.Ordinal);
+        Assert.Contains(".basecheck", Assert.Single(prs.Created).Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_gitlink_a_later_commit_removed_is_dropped_from_every_commit()
+    {
+        using var f = new HandoverTests.Fixture(edit: dir => NestedCheckout(dir, "scratch-base"), thenEdit: dir => Directory.Delete(Path.Combine(dir, "scratch-base"), true));
+
+        var outcome = await Hand(f);
+
+        Assert.Equal(HandoverStatus.Pushed, outcome.Status);
+        Assert.DoesNotContain("160000", Git(f.Remote, "log", "--raw", "--format=", $"{f.BaseCommit}..chargehand/run1"), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_branch_that_only_adds_scratch_output_has_nothing_left_to_push()
     {

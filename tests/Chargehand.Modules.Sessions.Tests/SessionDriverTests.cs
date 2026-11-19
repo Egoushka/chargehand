@@ -255,6 +255,24 @@ public class SessionDriverTests
     }
 
     [Fact]
+    public async Task A_nested_checkout_stays_out_of_the_snapshot_and_the_note_names_it()
+    {
+        using var w = new Workspace();
+        var nested = Path.Combine(w.Work, ".basecheck");
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(Path.Combine(nested, "base.txt"), "b");
+        w.Git("-C", ".basecheck", "init", "--quiet");
+        w.Git("-C", ".basecheck", "add", "-A");
+        w.Git("-C", ".basecheck", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "--quiet", "-m", "base");
+        File.WriteAllText(Path.Combine(w.Work, "small.txt"), "kept");
+        var outcome = await SessionDriver.RunAsync(Options(w, Emit(Init) + "\nsleep 60", Task(noProgressSeconds: 1)), default);
+
+        Assert.Equal("kept", w.Git("show", "chargehand/run1:small.txt"));
+        Assert.DoesNotContain(".basecheck", w.Git("ls-tree", "-r", "--name-only", "chargehand/run1"));
+        Assert.Contains(".basecheck", outcome.SnapshotNote, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_stale_index_lock_is_removed_and_a_live_one_skips_the_snapshot_with_a_note()
     {
         using var stale = new Workspace();

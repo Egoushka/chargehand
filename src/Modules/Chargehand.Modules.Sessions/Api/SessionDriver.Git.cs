@@ -178,10 +178,20 @@ public static partial class SessionDriver
             return Skipped("diff", staged);
         var large = staged.Stdout.Split('\0', StringSplitOptions.RemoveEmptyEntries)
             .Where(path => new FileInfo(Path.Combine(dir, path)) is { Exists: true } file && file.Length > SnapshotMaxFileBytes).ToList();
-        for (var i = 0; i < large.Count; i += 100)
-            if (await g(["--literal-pathspecs", "reset", "--quiet", "HEAD", "--", .. large.Skip(i).Take(100)]) is { Exit: not 0 } unstaged)
+        var raw = await g(["diff", "--cached", "--raw", "--no-renames", "-z"]);
+        if (raw.Exit != 0)
+            return Skipped("diff", raw);
+        var links = StagedGitlinks(raw.Stdout);
+        var leftOut = large.Concat(links).ToList();
+        for (var i = 0; i < leftOut.Count; i += 100)
+            if (await g(["--literal-pathspecs", "reset", "--quiet", "HEAD", "--", .. leftOut.Skip(i).Take(100)]) is { Exit: not 0 } unstaged)
                 return Skipped("reset", unstaged);
-        var note = large.Count == 0 ? null : $"not committed (over {SnapshotMaxFileBytes / 1024 / 1024} MiB): {string.Join(", ", large)}";
+        var notes = new List<string>();
+        if (large.Count > 0)
+            notes.Add($"not committed (over {SnapshotMaxFileBytes / 1024 / 1024} MiB): {string.Join(", ", large)}");
+        if (links.Count > 0)
+            notes.Add($"not committed (a nested git checkout, issue 912): {string.Join(", ", links)}");
+        var note = notes.Count == 0 ? null : string.Join("; ", notes);
         if ((await g(["diff", "--cached", "--quiet"])).Exit == 0)
             return note;
         var message = new List<string> { "-m", subject ?? $"WIP: session stopped by {reason} after {turns.ToString(CultureInfo.InvariantCulture)} turns" };
@@ -189,6 +199,17 @@ public static partial class SessionDriver
             message.AddRange(["-m", note]);
         var commit = await g(["-c", "core.hooksPath=/dev/null", "commit", "--quiet", "--no-verify", .. message]);
         return commit.Exit == 0 ? note : Skipped("commit", commit);
+    }
+
+    /// <summary>The paths <c>diff --cached --raw -z</c> lists as a gitlink (mode 160000): a checkout or worktree inside the workspace, which <c>add -A</c> stages as a submodule entry.</summary>
+    private static List<string> StagedGitlinks(string raw)
+    {
+        var fields = raw.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        List<string> links = [];
+        for (var i = 0; i + 1 < fields.Length; i += 2)
+            if (fields[i].Split(' ') is { Length: >= 2 } parts && (parts[0] == ":160000" || parts[1] == "160000"))
+                links.Add(fields[i + 1]);
+        return links;
     }
 
     private const int GitTimedOut = -1;
