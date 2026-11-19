@@ -52,8 +52,9 @@ public sealed partial class SqlitePoolStore : IDisposable
 
         """;
 
-    // Not in Schema: a file already at this version gets it on the next open.
-    private const string DoneIndex = "CREATE INDEX IF NOT EXISTS items_done ON items (status, done_at);";
+    // Not in Schema: a file already at this version gets them on the next open. items_issue needs the issue column, which a v1 file only has after the version 2 step.
+    private const string DoneIndex = "CREATE INDEX IF NOT EXISTS items_done ON items (status, done_at);"
+        + "CREATE INDEX IF NOT EXISTS items_issue ON items (repository, issue);";
 
     private const string Columns =
         "key, source, repository, area, title, body, priority, pull_request, enqueued_at, status, worker, reason, claimed_at, done_at, issue, size";
