@@ -915,6 +915,29 @@
           "description": "Turns on the event log (ADR 0090): POST and GET /v1/events, GET /v1/events/stream (server-sent events, Last-Event-ID resumes) and GET /v1/threads with /v1/threads/{id}/card. The owner's key reads and writes everything; each token here is one producer's. Absent: the routes are not there.",
           "properties": {
             "database": { "type": "string", "minLength": 1, "description": "The SQLite file. Default: events.db beside the run log." },
+            "signals": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Plain-English watchers (P06): each sentence in items is checked, by a cheap read-only model run, against every thread that closes; a hit is kept for the console. Every check is a model call, so it is off unless enabled. Absent: off.",
+              "properties": {
+                "enabled": { "type": "boolean", "description": "Default false." },
+                "max_checks_per_day": { "type": "integer", "minimum": 1, "description": "Model calls per UTC day across all signals. A thread that closes after the cap is not checked. Default 50." },
+                "preset": { "type": "string", "minLength": 1, "description": "The read-only preset the judge runs on. Default cheap." },
+                "items": {
+                  "type": "array",
+                  "description": "The signals. Ids are unique.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "text"],
+                    "properties": {
+                      "id": { "type": "string", "minLength": 1, "description": "Names the signal on a hit." },
+                      "text": { "type": "string", "minLength": 1, "description": "What to watch for, in plain English: session stuck in a loop." }
+                    }
+                  }
+                }
+              }
+            },
             "tokens": {
               "type": "array",
               "description": "Producers' bearer tokens, each bound to a source prefix and scope grants. A token opens /v1/events and /v1/threads and nothing else.",
