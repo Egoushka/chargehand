@@ -108,7 +108,8 @@
         "model": {
           "api_key_secret": "alice-gateway-key",
           "base_url": "https://gateway.example.com/v1",
-          "oauth_token_secret": null
+          "oauth_token_secret": null,
+          "third_party": false
         },
         "allow_server_credential": false,
         "pause_on_forecast": false,
