@@ -67,7 +67,7 @@ The caller sends the key as `Authorization: Bearer chk1...` on every route, `/v1
 | `max_concurrent_runs` | unfinished runs (queued or running) at once |
 | `driven` | may start a batch; default `false`, because a batch pushes branches and opens pull requests with the server's credential |
 | `repositories` | absolute directories; `context.repository.path` must be one of them or below it, and every request must name a repository. Absent: any the server allows |
-| `model` | the account's own model credential, see [below](#an-accounts-own-model-key): `api_key_secret` and optional `base_url` |
+| `model` | the account's own model credential, see [below](#an-accounts-own-model-key): `api_key_secret` and optional `base_url`; `third_party: true` marks another vendor's endpoint and then needs `base_url`, `max_usd_per_day` and `repositories`, and a run whose repository path (symlinks followed) has a directory named `work` is refused. Memory recall is shared across accounts, so keep employer notes out of a bank a third-party account can read |
 | `allow_server_credential` | an account with no `model` may spend the server's model credential; default `false`: its runs are refused with `model_credential_missing` |
 | `pause_on_forecast` | default `false`; needs `max_usd_per_month`. Holds the automated starts charged to this account (`automation.account`) while its month forecast, the month so far plus the last 7 days' rate, passes the cap ([ADR 0076](../adr/0076-month-spend-forecast.md)); a person's own run is never held by it |
 

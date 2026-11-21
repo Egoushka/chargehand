@@ -92,6 +92,25 @@ public class AccountModelTests
     }
 
     [Fact]
+    public void A_third_party_account_is_refused_a_work_path_under_a_wide_root_or_behind_a_symlink_or_dots()
+    {
+        using var dir = new TempDir();
+        var work = Directory.CreateDirectory(Path.Combine(dir.Path, "work", "repo")).FullName;
+        var personal = Directory.CreateDirectory(Path.Combine(dir.Path, "personal")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(personal, "link"), Path.Combine(dir.Path, "work"));
+        var account = new AccountSettings("flash", MaxUsdPerDay: 5, Repositories: [dir.Path], Model: new AccountModel("k", "https://api.example/anthropic", ThirdParty: true));
+        RunRequest Ask(string path) => Runs.DraftRequest() with { Context = new(false, "draft", Repository: new RepositoryRef(path, Commit)) };
+        AccountRefusal? Refuse(string path) => AccountPolicy.Refusal(account, Ask(path), 0, new(0m, 0), new(0m, 0), DateTimeOffset.UtcNow);
+
+        Assert.Equal("repository_not_allowed", Refuse(work)?.Code);
+        Assert.Equal("repository_not_allowed", Refuse(Path.Combine(personal, "link", "repo"))?.Code);
+        Assert.Equal("repository_not_allowed", Refuse(Path.Combine(personal, "..", "work", "repo"))?.Code);
+        Assert.Null(Refuse(personal));
+        Assert.Contains("model: third_party needs base_url: it marks another vendor's endpoint", new AccountSettings("flash", MaxUsdPerDay: 5, Repositories: ["/home/u/p"], Model: new AccountModel("k", ThirdParty: true)).Problems());
+        Assert.Contains("repositories: '/home/u/personal/../Work/x' is under a work directory, which a third-party model never sees", new AccountSettings("flash", MaxUsdPerDay: 5, Repositories: ["/home/u/personal/../Work/x"], Model: new AccountModel("k", "https://a.example", ThirdParty: true)).Problems());
+    }
+
+    [Fact]
     public void The_owner_a_cli_run_and_a_permitted_account_use_the_servers_credential_and_a_model_account_its_own()
     {
         var model = new AccountModel("alice-key");

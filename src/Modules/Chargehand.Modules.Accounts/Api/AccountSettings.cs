@@ -45,17 +45,22 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
 
     private IEnumerable<string> ModelProblems() => (Model?.Problems() ?? []).Select(p => $"model: {p}").Concat(ThirdPartyProblems());
 
-    /// <summary>A third-party model (a cheap pay-per-token vendor) is capped in dollars and sees only the listed repositories, none under a <c>work</c> directory (D-48).</summary>
+    /// <summary>A third-party model (a cheap pay-per-token vendor) is capped in dollars and sees only the listed repositories, none under a <c>work</c> directory (D-48); admission re-checks the requested path (<see cref="AccountPolicy"/>).</summary>
     private IEnumerable<string> ThirdPartyProblems()
     {
         if (Model is not { ThirdParty: true })
             yield break;
+        if (Model.BaseUrl is null) yield return "model: third_party needs base_url: it marks another vendor's endpoint";
         if (MaxUsdPerDay is null) yield return "model: third_party needs max_usd_per_day";
         if (Repositories is null or []) yield return "model: third_party needs repositories";
         foreach (var r in Repositories ?? [])
-            if (r.Split('/', '\\').Any(seg => seg.Equals("work", StringComparison.OrdinalIgnoreCase)))
+            if (HasWorkSegment(r))
                 yield return $"repositories: '{r}' is under a work directory, which a third-party model never sees";
     }
+
+    /// <summary>Whether <paramref name="path"/>, with <c>..</c> and <c>.</c> resolved, has a directory named <c>work</c>.</summary>
+    public static bool HasWorkSegment(string path) =>
+        Path.GetFullPath(path.Replace('\\', '/')).Split('/', '\\').Any(seg => seg.Equals("work", StringComparison.OrdinalIgnoreCase));
 
     public IEnumerable<string> Problems()
     {

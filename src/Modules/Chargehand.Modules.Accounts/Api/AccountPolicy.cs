@@ -49,6 +49,8 @@ public static class AccountPolicy
                 return new("repository_not_allowed", $"account '{account.Name}' must name a repository in context.repository", AccountRefusal.Forbidden);
             if (!roots.Any(r => Within(r, repository.Path)))
                 return new("repository_not_allowed", $"account '{account.Name}' may not use the repository {repository.Path}", AccountRefusal.Forbidden);
+            if (account.Model is { ThirdParty: true } && AccountSettings.HasWorkSegment(RealPath(repository.Path)))
+                return new("repository_not_allowed", $"account '{account.Name}' uses a third-party model, which never sees a work directory: {repository.Path}", AccountRefusal.Forbidden);
         }
         if (account.MaxConcurrentRuns is { } most && unfinished >= most)
             return new("concurrency_exceeded", $"account '{account.Name}' has {unfinished} unfinished runs, its limit; retry when one ends", AccountRefusal.TooManyRequests);
@@ -93,6 +95,19 @@ public static class AccountPolicy
                 },
             };
         return request;
+    }
+
+    /// <summary><paramref name="path"/> with every symlink on it followed, so a link inside an allowed root cannot lead to a directory the account must not see.</summary>
+    private static string RealPath(string path)
+    {
+        var current = Path.GetPathRoot(Path.GetFullPath(path)) ?? "/";
+        foreach (var segment in Path.GetFullPath(path)[current.Length..].Split('/', '\\', StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if (new DirectoryInfo(current).ResolveLinkTarget(true) is { } target)
+                current = target.FullName;
+        }
+        return current;
     }
 
     private static bool Within(string root, string path)
