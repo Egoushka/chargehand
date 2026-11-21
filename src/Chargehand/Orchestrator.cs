@@ -62,6 +62,13 @@ public sealed class Orchestrator(
     /// <summary>One repository context pack per repository, rebuilt only when its commit changes (issue #435), shared by every run this orchestrator serves.</summary>
     private readonly RepositoryPackCache _packs = new();
 
+    /// <summary>The run log's own history, reduced to <see cref="EstimateSample"/>s for <see cref="CostEstimator"/> (issue #427): rebuilt at most this often,
+    /// since scanning the whole log on every run would cost more than the estimate it calibrates.</summary>
+    private static readonly TimeSpan CalibrationHistoryTtl = TimeSpan.FromMinutes(5);
+
+    private IReadOnlyList<EstimateSample>? _calibrationHistory;
+    private DateTimeOffset _calibrationHistoryAt = DateTimeOffset.MinValue;
+
     private readonly PoolRouting _routing = routing ?? new PoolRouting(profile.Pools, runLog, classifier: new DataClassifier(profile, publicFree?.Pool), warn: message => Console.Error.WriteLine($"chargehand: {message}"));
 
     /// <summary>The router's kind for intake and the support check (ADR 0095); a worker's kind is its preset's name.</summary>
@@ -219,6 +226,9 @@ public sealed class Orchestrator(
                     }
                     else
                     {
+                        // Code prices the run, not intake (issue #427): intake's own dollar guess is replaced before it gates anything (approval, the log).
+                        spec = await WithCodeEstimateAsync(spec, presetName, workerModel, ct);
+                        intake = intake with { Spec = spec };
                         // An action the preset does not allow (Preset.Executes), or a split that fails validation, runs as one answer node.
                         executed = preset.Executes(spec.Action);
                         IReadOnlyList<PlanNode> plan = [new PlanNode(kindName, null, [])];
@@ -297,6 +307,40 @@ public sealed class Orchestrator(
         var answer = await enhancer.EnhanceAsync(request.Text, EnhanceContextOf(request), ct);
         run?.SetTag("chargehand.enhancer.rewrite_offered", answer.Changed);
         return answer;
+    }
+
+    /// <summary>Replaces intake's own guess at <c>estimate</c>'s dollar range with one <see cref="CostEstimator"/> computes from the model the preset actually
+    /// dispatches, calibrated against the run log's own history (issue #427): intake, run on a small model, has no reason to know what a different, usually
+    /// larger, worker model costs. Intake's token range is kept — it is the only size signal left once the dollar guess is not the model's to make.
+    /// <paramref name="dispatchedModel"/> is the model id the preset's node kind resolved to, or null when the runtime picks its own default ("auto"), which
+    /// prices nothing and so is reported as-is.</summary>
+    private async Task<TaskSpec> WithCodeEstimateAsync(TaskSpec spec, string preset, string? dispatchedModel, CancellationToken ct)
+    {
+        var prices = new PriceTable(profile.Prices ?? new Dictionary<string, ModelPrice>());
+        var history = await CalibrationHistoryAsync(prices, ct);
+        return spec with { Estimate = CostEstimator.Compute(spec.Estimate, preset, dispatchedModel ?? "auto", prices, history) };
+    }
+
+    /// <summary>The run log's history as <see cref="EstimateSample"/>s, rebuilt at most every <see cref="CalibrationHistoryTtl"/> (issue #427). A log that
+    /// cannot list every record (<see cref="IRunLog.ReadAllAsync"/> is optional) calibrates against no history, which <see cref="EstimateCalibration"/>
+    /// already treats as too few samples and falls back on. Unsynchronized: two runs racing a rebuild at once just rebuild twice, which costs more than it
+    /// corrupts — the cache is advisory, not a source of truth.</summary>
+    private async Task<IReadOnlyList<EstimateSample>> CalibrationHistoryAsync(IPriceTable prices, CancellationToken ct)
+    {
+        if (_calibrationHistory is { } cached && DateTimeOffset.UtcNow - _calibrationHistoryAt < CalibrationHistoryTtl)
+            return cached;
+        IReadOnlyList<EstimateSample> history;
+        try
+        {
+            history = EstimateHistory.From((await runLog.ReadAllAsync(ct)).Runs, prices);
+        }
+        catch (NotSupportedException)
+        {
+            history = [];
+        }
+        _calibrationHistory = history;
+        _calibrationHistoryAt = DateTimeOffset.UtcNow;
+        return history;
     }
 
     /// <summary>Exactly the five fields ADR 0040 and 0070 allow. The repository is the checkout's folder name, never its path; a commit that is not a hex id is left out, and so is a parent request id outside 1 to 128 characters.</summary>
