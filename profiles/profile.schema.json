@@ -867,7 +867,8 @@
                 "properties": {
                   "api_key_secret": { "type": "string", "minLength": 1, "description": "Secret-store item holding an Anthropic API key, or the key a gateway issued when base_url names that gateway." },
                   "base_url": { "type": "string", "pattern": "^https?://[^/?#@]+(/[^?#]*)?$", "description": "An Anthropic-compatible gateway's base URL (http or https, no credentials, query or fragment). Absent: Anthropic's own API." },
-                  "oauth_token_secret": { "not": {}, "description": "Never allowed: a subscription token is the owner's plan and cannot be priced or capped in dollars. Use api_key_secret." }
+                  "oauth_token_secret": { "not": {}, "description": "Never allowed: a subscription token is the owner's plan and cannot be priced or capped in dollars. Use api_key_secret." },
+                  "third_party": { "type": "boolean", "default": false, "description": "base_url is another vendor's Anthropic-compatible endpoint (DeepSeek, Moonshot). The account then needs max_usd_per_day and repositories, none under a work directory." }
                 }
               },
               "allow_server_credential": { "type": "boolean", "default": false, "description": "An account with no model block may spend the server's model credential. Default false: its runs are refused with model_credential_missing. The owner always uses the server's." },

@@ -79,6 +79,19 @@ public class AccountModelTests
     }
 
     [Fact]
+    public void A_third_party_account_needs_a_dollar_cap_and_a_repository_list_clear_of_work()
+    {
+        var model = new AccountModel("flash-key", "https://api.example/anthropic", ThirdParty: true);
+        string[] Problems(AccountSettings a) => [.. a.Problems()];
+
+        Assert.Contains("model: third_party needs max_usd_per_day", Problems(new("flash", Model: model, Repositories: ["/home/u/personal"])));
+        Assert.Contains("model: third_party needs repositories", Problems(new("flash", MaxUsdPerDay: 5, Model: model)));
+        Assert.Contains("repositories: '/home/u/work/repo' is under a work directory, which a third-party model never sees", Problems(new("flash", MaxUsdPerDay: 5, Model: model, Repositories: ["/home/u/work/repo"])));
+        Assert.Empty(Problems(new("flash", MaxUsdPerDay: 5, Model: model, Repositories: ["/home/u/personal"])));
+        Assert.Empty(Problems(new("plain", Model: new AccountModel("k", "https://gateway.example"))));
+    }
+
+    [Fact]
     public void The_owner_a_cli_run_and_a_permitted_account_use_the_servers_credential_and_a_model_account_its_own()
     {
         var model = new AccountModel("alice-key");

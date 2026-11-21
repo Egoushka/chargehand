@@ -43,6 +43,20 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
         (MaxConcurrentRuns is < 1 ? ["max_concurrent_runs must be at least 1"] : (IEnumerable<string>)[])
         .Concat(new[] { ("max_pct_per_day_7d", MaxPctPerDay7d), ("max_pct_per_day_5h", MaxPctPerDay5h) }.Where(p => p.Item2 is <= 0 or > 100).Select(p => $"{p.Item1} must be above 0 and at most 100"));
 
+    private IEnumerable<string> ModelProblems() => (Model?.Problems() ?? []).Select(p => $"model: {p}").Concat(ThirdPartyProblems());
+
+    /// <summary>A third-party model (a cheap pay-per-token vendor) is capped in dollars and sees only the listed repositories, none under a <c>work</c> directory (D-48).</summary>
+    private IEnumerable<string> ThirdPartyProblems()
+    {
+        if (Model is not { ThirdParty: true })
+            yield break;
+        if (MaxUsdPerDay is null) yield return "model: third_party needs max_usd_per_day";
+        if (Repositories is null or []) yield return "model: third_party needs repositories";
+        foreach (var r in Repositories ?? [])
+            if (r.Split('/', '\\').Any(seg => seg.Equals("work", StringComparison.OrdinalIgnoreCase)))
+                yield return $"repositories: '{r}' is under a work directory, which a third-party model never sees";
+    }
+
     public IEnumerable<string> Problems()
     {
         if (!ValidName(Name)) yield return "name must be lowercase letters, digits and hyphens, starting with a letter, at most 32 characters";
@@ -55,8 +69,8 @@ public sealed record AccountSettings(string Name, decimal? MaxUsdPerDay = null, 
             yield return problem;
         if (PauseOnForecast && MaxUsdPerMonth is null) yield return "pause_on_forecast needs max_usd_per_month: the forecast has no cap to pass";
         if (Repositories?.Any(r => !Path.IsPathRooted(r)) == true) yield return "repositories must be absolute paths";
-        foreach (var problem in Model?.Problems() ?? [])
-            yield return $"model: {problem}";
+        foreach (var problem in ModelProblems())
+            yield return problem;
     }
 }
 
@@ -68,8 +82,9 @@ public sealed partial class AccountSettingsValidator : IValidateOptions<AccountS
 /// The server resolves it when the account's first run needs it; no key is ever in the profile.</summary>
 /// <param name="ApiKeySecret">The secret item holding the API key (or the gateway's key).</param>
 /// <param name="BaseUrl">An Anthropic-compatible gateway's base URL; null: Anthropic's own API.</param>
+/// <param name="ThirdParty">The endpoint is another vendor's (DeepSeek, Moonshot), not Anthropic or a gateway to it. The account then needs <c>max_usd_per_day</c> and <c>repositories</c>, none under a <c>work</c> directory. Default false.</param>
 /// <param name="OauthTokenSecret">Never allowed: a subscription token is the owner's plan, and the profile refuses it here with that reason instead of ignoring it.</param>
-public sealed record AccountModel(string? ApiKeySecret = null, string? BaseUrl = null, string? OauthTokenSecret = null)
+public sealed record AccountModel(string? ApiKeySecret = null, string? BaseUrl = null, string? OauthTokenSecret = null, bool ThirdParty = false)
 {
     public IEnumerable<string> Problems()
     {
