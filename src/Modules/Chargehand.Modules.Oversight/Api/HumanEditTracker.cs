@@ -34,7 +34,7 @@ public sealed class HumanEditTracker(ILearningStore learning, IHumanEditStore ed
             {
                 if (!seenShas.Add(commit.Sha))
                     continue;
-                var edit = new HumanEditCommit(now, entry.Record.RunId, pr.Url, commit.Sha, HumanEditClassifier.Classify(commit.Message, commit.ChangedPaths), commit.Message);
+                var edit = new HumanEditCommit(now, entry.Record.RunId, pr.Url, commit.Sha, HumanEditClassifier.Classify(commit.Message, commit.ChangedPaths), commit.Message, commit.ChangedPaths);
                 await edits.AppendAsync(edit, ct);
                 written++;
                 if (HumanEditLearner.Propose(history, edit, now) is { } proposal)

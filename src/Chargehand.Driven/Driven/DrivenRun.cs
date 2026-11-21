@@ -72,6 +72,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// <summary>The hosts each repository's sessions were refused (ADR 0078, decision 4); null without a state directory.</summary>
     public LearnedHosts? LearnedHosts { get; } = stateDirectory is null ? null : new LearnedHosts(Path.Combine(stateDirectory, "learned-hosts.json"));
 
+    /// <summary>The human commits classified from merged-edited pull requests (issue #452), for the console's human-fix heatmap (issue #455); null without a state directory.</summary>
+    public IHumanEditStore? HumanEdits { get; } = stateDirectory is null ? null : new JsonlHumanEditStore(Path.Combine(stateDirectory, "human-edits.jsonl"));
+
     /// <summary>How often <see cref="RefreshPrOutcomesAsync"/> should run.</summary>
     public TimeSpan PrCheckEvery => TimeSpan.FromMinutes((profile.Driven?.Learning ?? new DrivenLearning()).PrCheckMinutes);
 
@@ -629,10 +632,9 @@ public sealed class DrivenRun(Profile profile, IRunLog log, string rootDirectory
     /// nothing without learning records, a state directory to keep its JSONL files in, or a forge credential.</summary>
     /// <returns>The human commits classified and recorded.</returns>
     public Task<int> RefreshHumanEditsAsync(CancellationToken ct) =>
-        learning is null || stateDirectory is null
+        learning is null || stateDirectory is null || HumanEdits is not { } edits
             ? Task.FromResult(0)
-            : new HumanEditTracker(learning, new JsonlHumanEditStore(Path.Combine(stateDirectory, "human-edits.jsonl")),
-                new JsonlProposalSink(Path.Combine(stateDirectory, "proposals.jsonl")), ReadHost).RefreshAsync(ct);
+            : new HumanEditTracker(learning, edits, new JsonlProposalSink(Path.Combine(stateDirectory, "proposals.jsonl")), ReadHost).RefreshAsync(ct);
 
     /// <summary>How often <see cref="ClusterReportAsync"/> should run.</summary>
     public TimeSpan ClusterCheckEvery => TimeSpan.FromDays((profile.Driven?.Learning ?? new DrivenLearning()).ClusterCheckDays);

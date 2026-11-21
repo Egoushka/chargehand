@@ -65,7 +65,9 @@ public sealed class HumanEditTrackerTests : IDisposable
 
         Assert.Equal(1, written);
         var recorded = await edits.ReadAsync(CancellationToken.None);
-        Assert.Equal([new HumanEditCommit(Now, "r1", "https://example.test/pull/1", "sha1", HumanEditCategory.Lint, "style: fix lint")], recorded);
+        var edit = Assert.Single(recorded);
+        Assert.Equal(new HumanEditCommit(Now, "r1", "https://example.test/pull/1", "sha1", HumanEditCategory.Lint, "style: fix lint"), edit with { ChangedPaths = [] });
+        Assert.Equal(["src/Foo.cs"], edit.ChangedPaths);
         Assert.Empty(await proposals.ReadAsync(CancellationToken.None));
     }
 
