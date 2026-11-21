@@ -5,6 +5,24 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.30](https://github.com/Egoushka/chargehand/compare/v0.19.29...v0.19.30) (2026-11-21)
+
+
+### Features
+
+* **accounts:** third_party model accounts need a dollar cap and a repository list clear of work ([#1063](https://github.com/Egoushka/chargehand/issues/1063)) ([ed799d6](https://github.com/Egoushka/chargehand/commit/ed799d6be735408f45620553a1c691969b010755))
+
+
+### Bug Fixes
+
+* **handover:** drop gitlinks from hand-overs and the stop snapshot ([#1049](https://github.com/Egoushka/chargehand/issues/1049)) ([83783d5](https://github.com/Egoushka/chargehand/commit/83783d5e5e4523ceaaf2500937e5bb011a43a53f))
+* **pool:** count a lost run as a breaker failure ([#1047](https://github.com/Egoushka/chargehand/issues/1047)) ([adb40e1](https://github.com/Egoushka/chargehand/commit/adb40e1d92856b32848d60c152a8899e22205e4a))
+
+
+### Performance Improvements
+
+* **pool:** index items on (repository, issue) ([#1048](https://github.com/Egoushka/chargehand/issues/1048)) ([90bb935](https://github.com/Egoushka/chargehand/commit/90bb93511d8d04915b863d418de61b1b41b2a222))
+
 ## [0.19.29](https://github.com/Egoushka/chargehand/compare/v0.19.28...v0.19.29) (2026-11-16)
 
 
