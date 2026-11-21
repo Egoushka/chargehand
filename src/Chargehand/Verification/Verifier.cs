@@ -8,8 +8,8 @@ public sealed record VerifyOutcome(VerifyPlan Plan, int ExitCode, string OutputT
     public bool Passed => ExitCode == 0 && !TimedOut;
 }
 
-/// <summary>Runs a <see cref="VerifyPlan"/> in a sandbox with the profile's network and environment settings.</summary>
-public sealed class Verifier(ISandbox sandbox, bool network, IReadOnlyList<string> passEnv)
+/// <summary>Runs a <see cref="VerifyPlan"/> in a sandbox with the profile's network, environment and host-allowlist settings.</summary>
+public sealed class Verifier(ISandbox sandbox, bool network, IReadOnlyList<string> passEnv, IReadOnlyList<string>? allowedHosts = null)
 {
     /// <summary>Refuses an npx auto-install (issue #911): with no local binary, npx would otherwise fetch and run any registry
     /// package that happens to share the missing command's name.</summary>
@@ -21,7 +21,7 @@ public sealed class Verifier(ISandbox sandbox, bool network, IReadOnlyList<strin
 
     public async Task<VerifyOutcome> RunAsync(VerifyPlan plan, string directory, TimeSpan timeout, CancellationToken ct)
     {
-        var r = await sandbox.RunAsync(new SandboxSpec(plan.Argv, directory, timeout, network, passEnv, NpxNoInstall), ct);
+        var r = await sandbox.RunAsync(new SandboxSpec(plan.Argv, directory, timeout, network, passEnv, NpxNoInstall, AllowedHosts: allowedHosts), ct);
         return new VerifyOutcome(plan, r.ExitCode, r.OutputTail, r.TimedOut, r.Duration);
     }
 }

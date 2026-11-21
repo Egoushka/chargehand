@@ -737,7 +737,8 @@ CacheWarmer? CacheWarmerFor(EventService? events)
         Console.Error.WriteLine($"cache warmer off: {e.Message}");
         return null;
     }
-    var runner = new Chargehand.Warming.SandboxedStepRunner(sandbox, profile.Sandbox?.Network ?? false, [.. tools, .. profile.Sandbox?.Env ?? []], env, [], Path.Combine(workerRoot, ".pnpm-stores"));
+    var runner = new Chargehand.Warming.SandboxedStepRunner(sandbox, profile.Sandbox?.Network ?? false, [.. tools, .. profile.Sandbox?.Env ?? []], env, [],
+        Path.Combine(workerRoot, ".pnpm-stores"), profile.Sandbox?.AllowedHosts);
     var promoter = new Chargehand.Warming.NuGetPromoter(Path.Combine(workerRoot, ".nuget-packages"), Path.Combine(workerRoot, ".nuget-work"), profile.NugetTrustedSigners ?? [], Chargehand.Warming.DotnetProcess.RunAsync);
     return new CacheWarmer(events.Log, Path.Combine(workerRoot, ".checkouts"), runner, promoter: promoter, stagingRoot: Path.Combine(workerRoot, ".nuget-staging"));
 }
