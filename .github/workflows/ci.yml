@@ -1,23 +1,27 @@
 name: ci
 
-# Pull requests only: a squash merge lands the tree the pull request already tested, so a push run on main re-ran the
-# ~25 min suite for nothing (ADR 0033, amendment 2026-11-25). Nothing else reads this workflow's push runs.
+# Owner pull requests run no job here: the `fast-tier` status that `ws ship` posts after the local fast tier is their gate
+# (ADR 0033, amendment 2026-11-25). Fork and bot pull requests (Dependabot, release-please) run everything, and the last
+# job posts `fast-tier` for the bot ones. The full suite runs once, on push to main, after the merge.
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
-# A newer push to a pull request supersedes the run in flight.
+# A newer push to a pull request supersedes the run in flight; main keeps every run.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ADR 0033: a pull request that touches only prose skips the build jobs. Nothing else reads these files: tests read
   # docs/*.json, and prompts/, presets/, plugins/ and CHANGELOG.md are not in the list. File names come from the API;
   # nothing from the pull request is checked out here.
   changes:
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot')
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -66,7 +70,7 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore -c Release -warnaserror
       - run: dotnet test --no-build -c Release
-      # Specs/2026-11-11-claim-drift-watch.md: what the guide pages cite (<!-- cites: ... -->) still exists. Notify-only: runs on code pull requests.
+      # Specs/2026-11-11-claim-drift-watch.md: what the guide pages cite (<!-- cites: ... -->) still exists. Notify-only: runs on main and on code pull requests.
       - name: Guide citations are checked
         run: dotnet run --no-build -c Release --project src/Chargehand.Cli -- claims check --root .
       - name: The current version has a changelog section
@@ -192,6 +196,7 @@ jobs:
           docker compose --profile driven config -q
 
   secrets:
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot')
     runs-on: ubuntu-latest
     # On pull requests gitleaks-action lists the PR's commits through the API.
     permissions:
@@ -207,7 +212,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   commits:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -217,7 +222,7 @@ jobs:
       - run: scripts/check-commits.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
 
   dependencies:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -230,12 +235,21 @@ jobs:
   # The one required check (ADR 0033): green when every job above passed or was skipped, so a prose-only pull request
   # merges without the build jobs, and a job renamed or added here needs no change to the ruleset.
   ci-gate:
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.type == 'Bot')
     needs: [changes, build, format, web, package, aot, plugin, compose, secrets, commits, dependencies]
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
     steps:
       - env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
+      # A same-repository bot pull request has no local fast tier behind it: green here is its fast-tier.
+      - if: github.event_name == 'pull_request' && github.event.pull_request.user.type == 'Bot' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh api "repos/$REPO/statuses/$SHA" -f state=success -f context=fast-tier -f description="ci-gate green on a bot pull request" > /dev/null
