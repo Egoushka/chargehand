@@ -64,12 +64,16 @@ public sealed class FreeModelCatalog
             {
                 current = null;
             }
-            else if (current is not null)
+            else
             {
                 var eq = line.IndexOf('=', StringComparison.Ordinal);
                 if (eq <= 0)
                     throw new FormatException($"line {lineNo}: expected key = value");
-                current[line[..eq].Trim()] = ParseValue(line[(eq + 1)..].Trim(), lineNo);
+                var key = line[..eq].Trim();
+                var value = ParseValue(line[(eq + 1)..].Trim(), lineNo);
+                // A repeated key is an error in TOML: the last one winning could turn a public model private.
+                if (current is not null && !current.TryAdd(key, value))
+                    throw new FormatException($"line {lineNo}: {key} is set twice");
             }
         }
         return new FreeModelCatalog([.. models.Select((m, i) => ToModel(m, i + 1))]);
@@ -91,15 +95,22 @@ public sealed class FreeModelCatalog
         {
             foreach (var (task, grade) in tasks)
             {
-                if (!Enum.TryParse<FreeTask>(task, ignoreCase: false, out _) && !Enum.TryParse<FreeTask>(Capitalize(task), out _))
-                    throw new FormatException($"{id}: unknown task class '{task}'");
-                SetGrade(grades, id, Enum.Parse<FreeTask>(Capitalize(task)), grade);
+                SetGrade(grades, id, TaskOf(task) ?? throw new FormatException($"{id}: unknown task class '{task}'"), grade);
             }
         }
         return new FreeModel(id, tier, grades);
     }
 
-    private static string Capitalize(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    private static FreeTask? TaskOf(string name) => name switch
+    {
+        "ask" => FreeTask.Ask,
+        "review" => FreeTask.Review,
+        "edit" => FreeTask.Edit,
+        "plan" => FreeTask.Plan,
+        "mechanical" => FreeTask.Mechanical,
+        "critic" => FreeTask.Critic,
+        _ => null,
+    };
 
     private static void SetGrade(Dictionary<FreeTask, FreeGrade> grades, string id, FreeTask task, string grade)
     {
@@ -135,12 +146,19 @@ public sealed class FreeModelCatalog
                 throw new FormatException($"line {lineNo}: bad inline table");
             var key = rest[..eq].Trim();
             var value = rest[(eq + 1)..].TrimStart();
-            result[key] = ParseString(value, lineNo, out var end);
+            if (!result.TryAdd(key, ParseString(value, lineNo, out var end)))
+                throw new FormatException($"line {lineNo}: {key} is set twice");
             rest = value[end..].TrimStart();
             if (rest.StartsWith(','))
+            {
                 rest = rest[1..].TrimStart();
+                if (rest.Length == 0)
+                    throw new FormatException($"line {lineNo}: trailing comma in an inline table");
+            }
             else if (rest.Length > 0)
+            {
                 throw new FormatException($"line {lineNo}: bad inline table");
+            }
         }
         return result;
     }

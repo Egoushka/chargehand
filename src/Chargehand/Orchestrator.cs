@@ -163,24 +163,24 @@ public sealed class Orchestrator(
                 var pooled = publicFree?.Owns(worker) == true;
                 // With the budget router on (ADR 0095) intake runs on the router's model; the pool's runs never go through it.
                 dataClass ??= await _routing.ClassifyAsync(asked.Context.Repository?.Path, ct);
-                var intakeModelId = pooled ? publicFree!.IntakeModel : (await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, dataClass.Value, ct)).Model;
-                var intakeLabel = _routing.On && !pooled ? intakeModelId ?? intakeModel : intakeModel;
-                credential = worker.Credential;
                 var preset = Preset.Load(Path.Combine(rootDirectory, "presets"), presetName);
                 var (kindName, kind) = AnswerKind(preset);
+                // Free models first (ADR 0103), before the budget router: a spent pool must not stop a run a free model could take. The free server knows only its own models, so intake and
+                // the support check run on the same free model, never on the owner's.
+                FreeOffer? offer = null;
                 if (freeFirst is not null && !pooled)
                 {
-                    var offer = await freeFirst.OfferAsync(presetName, kind, request.Context.Repository?.Path, freeTried, ct);
-                    freeNote = FreeFirstGate.Describe(offer);
+                    offer = await freeFirst.OfferAsync(presetName, kind, request.Context.Repository?.Path, request.Context.Repository?.Commit, freeTried, ct);
+                    freeNote ??= FreeFirstGate.Describe(offer);
                     if (offer.Models.Count > 0)
                     {
                         freeNow = offer.Models[0];
                         worker = freeFirst.Runtime;
-                        credential = worker.Credential;
-                        // The free server knows its own models; intake and the support check run on the same free model, never on the owner's.
-                        intakeModelId = intakeLabel = freeNow;
                     }
                 }
+                var intakeModelId = freeNow ?? (pooled ? publicFree!.IntakeModel : (await _routing.RouteAsync(IntakeRouteKind, null, profile.IntakeModel, dataClass.Value, ct)).Model);
+                var intakeLabel = freeNow ?? (_routing.On && !pooled ? intakeModelId ?? intakeModel : intakeModel);
+                credential = worker.Credential;
                 // An ACP agent runs research presets only, and a dollar cap holds only on counted tokens (ADR 0086, decisions 8 and 10).
                 if (kind.Writes && worker.ResearchOnly)
                     throw new ChargehandException(ErrorCode.InvalidRequest, $"preset {presetName} writes, and this runtime runs research presets only",
@@ -191,6 +191,7 @@ public sealed class Orchestrator(
                 // A writing preset without a sandbox is refused before anything is spent (ADR 0035).
                 var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
                 // A key that cannot be used stops the run before anything is spent (ADR 0036).
+                signingKey?.Dispose();
                 signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
                 // A completed review of the same commit and diff answers this one (issue 448); the stored result is signed and recorded as this run's.
                 if (reuseReviews && await ReviewReuse.FindAsync(runLog, request, actor, ct) is { } stored)
@@ -203,7 +204,7 @@ public sealed class Orchestrator(
                     // Unset when the profile maps no real model to the preset's placeholder: the runtime uses its own default. The budget router, when on, names it and records who pays (ADR 0095).
                     var routed = freeNow is not null ? new Routed(freeNow, null) : pooled ? new Routed(profile.ResolveModel(kind.Model), null) : await _routing.RouteAsync(presetName, null, profile.ResolveModel(kind.Model), dataClass!.Value, ct);
                     var workerModel = routed.Model;
-                    (ranModel, ranRuntime) = (workerModel ?? "auto", freeNow is not null ? "opencode" : profile.Runtime ?? (profile.ClaudeCode is not null ? "claude_code" : "opencode"));
+                    (ranModel, ranRuntime) = (workerModel ?? "auto", RuntimeName(worker));
                     route = routed.Route;
                     var callerBlocks = (request.CallerBlocks ?? []).Select(PromptChains.VerifyCallerBlock).ToList();
                     var local = await IsLocalAsync(request, ct);
@@ -324,6 +325,15 @@ public sealed class Orchestrator(
     /// Asks the prompt enhancer about the request's text (ADR 0041). The answer is only recorded: the original is what intake and the
     /// workers get, because no one is there to accept a rewrite. The guard makes this fail open; only the caller's cancellation escapes.
     /// </summary>
+    /// <summary>The runtime of a worker as the run record names it.</summary>
+    private static string RuntimeName(IWorkerRuntime worker) => worker.GetType().Name switch
+    {
+        var n when n.Contains("OpenCode", StringComparison.Ordinal) => "opencode",
+        var n when n.Contains("ClaudeCode", StringComparison.Ordinal) => "claude_code",
+        var n when n.Contains("Acp", StringComparison.Ordinal) => "acp",
+        var n => n,
+    };
+
     private async Task<Enhanced?> Enhance(RunRequest request, Activity? run, CancellationToken ct)
     {
         if (enhancer is null || request.Context.Enhance == false || string.IsNullOrWhiteSpace(request.Text))

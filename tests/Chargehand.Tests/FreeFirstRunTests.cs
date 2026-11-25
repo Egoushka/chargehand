@@ -62,7 +62,7 @@ public class FreeFirstRunTests
         Assert.Equal(("zen", "alpha-free"), (rig.Free.Created.Single().Model!.ProviderId, rig.Free.Created.Single().Model!.ModelId));
         var record = await Record(rig);
         var attempt = Assert.Single(record.Attempts!);
-        Assert.Equal(new RunAttempt("zen/alpha-free", "opencode", true, "completed"), attempt);
+        Assert.Equal(new RunAttempt("zen/alpha-free", "ScriptedRuntime", true, "completed"), attempt);
         Assert.Contains("mechanical/private", record.FreeFirst, StringComparison.Ordinal);
         Assert.DoesNotContain("zen/open-free", record.FreeFirst, StringComparison.Ordinal);   // a public-tier model is not offered for a repository GitHub does not call public
     }
@@ -81,7 +81,7 @@ public class FreeFirstRunTests
         Assert.Single(rig.Paid.Created);
         Assert.Equal("p/small", $"{rig.Paid.Created.Single().Model!.ProviderId}/{rig.Paid.Created.Single().Model!.ModelId}");
         Assert.Equal(
-            [new RunAttempt("zen/alpha-free", "opencode", true, "failed:rate_limited"), new RunAttempt("zen/beta-free", "opencode", true, "failed:rate_limited"), new("p/small", "opencode", false, "completed")],
+            [new RunAttempt("zen/alpha-free", "ScriptedRuntime", true, "failed:rate_limited"), new RunAttempt("zen/beta-free", "ScriptedRuntime", true, "failed:rate_limited"), new("p/small", "ScriptedRuntime", false, "completed")],
             (await Record(rig)).Attempts);
     }
 
@@ -180,6 +180,33 @@ public class FreeFirstRunTests
         Assert.True(FreeFirstGate.FallsThrough(Failed(ErrorCode.ProviderUnavailable)));
         Assert.False(FreeFirstGate.FallsThrough(Failed(ErrorCode.Cancelled)));
         Assert.False(FreeFirstGate.FallsThrough(Failed(ErrorCode.CostCapReached)));
+        Assert.False(FreeFirstGate.FallsThrough(Failed(ErrorCode.CheckoutInvalid)));   // every model would meet it again
+        Assert.False(FreeFirstGate.FallsThrough(Failed(ErrorCode.InvalidRequest)));
+        Assert.False(FreeFirstGate.FallsThrough(Failed(ErrorCode.Internal) with { Artifacts = [new Artifact("a", "text/plain", "x")] }));   // a run that produced something is never repeated
         Assert.False(FreeFirstGate.FallsThrough(Runs.Completed()));
+    }
+
+    [Theory]
+    [InlineData("cheap", "provider/small-model", FreeTask.Mechanical)]
+    [InlineData("prior-art", "provider/small-model", FreeTask.Mechanical)]
+    [InlineData("draft", "provider/small-model", FreeTask.Mechanical)]
+    [InlineData("review", "provider/worker-model", FreeTask.Review)]
+    [InlineData("design", "provider/worker-model", FreeTask.Plan)]
+    [InlineData("split", "provider/worker-model", FreeTask.Plan)]
+    [InlineData("default", "provider/worker-model", FreeTask.Ask)]
+    [InlineData("thorough", "provider/worker-model", FreeTask.Ask)]
+    [InlineData("strict", "provider/worker-model", FreeTask.Ask)]
+    [InlineData("incident", "provider/worker-model", FreeTask.Ask)]
+    [InlineData("release-notes", "provider/worker-model", FreeTask.Ask)]
+    [InlineData("code", "provider/worker-model", FreeTask.Edit)]
+    [InlineData("driven", "provider/worker-model", FreeTask.Ask)]   // its session kind does not write: a driven run goes through the driven path, never through a free model
+    [InlineData("public-free", "provider/free-model", null)]
+    public void Every_shipped_preset_maps_to_the_class_the_spec_names(string name, string slot, FreeTask? expected)
+    {
+        var preset = Preset.Load(Path.Combine(Repo.Root, "presets"), name);
+        var (_, kind) = Orchestrator.AnswerKind(preset);
+        Assert.Equal(slot, kind.Model);
+        Assert.Equal(expected, FreeTaskClass.For(name, kind.Model, kind.Writes));
+        Assert.Equal(14, Directory.GetFiles(Path.Combine(Repo.Root, "presets"), "*.yaml").Length);   // a new preset needs a row here
     }
 }

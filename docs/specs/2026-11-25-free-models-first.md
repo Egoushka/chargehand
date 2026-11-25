@@ -47,9 +47,9 @@ decision is made per run.
 | `provider/worker-model` in preset `review` | `review` |
 | `provider/worker-model` in presets `design`, `split` | `plan` |
 | `provider/worker-model`, any other preset that does not write | `ask` |
-| any node with `writes: true` (`code`, `driven`) | `edit` |
+| any node with `writes: true` (`code`) | `edit` |
 
-`edit` runs are not routed in this release: a failed free attempt leaves a half-written working tree, and falling back
+The `driven` preset's session kind does not write; a driven run goes through the driven path, which this release leaves alone. `edit` runs are not routed in this release: a failed free attempt leaves a half-written working tree, and falling back
 needs a clean tree. `edit` stays in the map so the class exists when that is designed. A critic block is read by no code
 today (ADR 0006: its critic has no writing node to review yet), so the `critic` class is mapped and tested but no run
 reaches it until a critic node exists.
@@ -64,13 +64,14 @@ app's and holds the providers of the list; chargehand never calls its `/api/prov
 **D4. The data rules hold in the server too.** The OpenCode server runs with its own XDG home and
 `OPENCODE_DISABLE_CLAUDE_CODE=1`, `OPENCODE_DISABLE_PROJECT_CONFIG=1`, `OPENCODE_CONFIG_PROJECT_DISABLE=1` and no other
 `OPENCODE_*`, so it does not send an instruction file from the host to the model. A repository is refused (paid slot) when
-its real path has a `work` or `.devbox` segment, or when a symlink inside it leads to one (the walk is bounded: past
-its limit the repository is refused). Free-model output is untrusted: it enters the run as a worker's answer and passes
+its real path (every link on it followed, also inside a link's own target) has a `work` or `.devbox` segment, or when a
+symlink inside the checkout leads to one, holds one, or reaches a tree that has one. The whole checkout is walked, not only the
+subdirectory a run names, and the symlinks the pinned commit tracks are read too: one that leaves the repository refuses it.
+The walk is bounded; a limit, a link loop or an unreadable entry refuses. Free-model output is untrusted: it enters the run as a worker's answer and passes
 the same citation and schema checks as any other, and nothing in it is executed.
 
 **D5. Fallback.** The attempts of a run are the routed free models in order, then the paid slot. A free attempt falls
-through to the next when it ends in `rate_limited`, `provider_unavailable`, a model the server does not know, a worker
-that ended failed, or a result that fails the run's own checks (schema or citation check). The paid attempt is last
+through to the next when it ends failed with nothing produced and the code is `rate_limited`, `provider_unavailable`, `runtime_unavailable`, a version mismatch, `invalid_result`, `verification_failed`, a failed or stalled session, `deadline_exceeded`, `intake_failed` or `internal`. A cancel, a cost cap and a bad request or checkout, which every model would meet again, end the run. The paid attempt is last
 and its outcome is the run's. A run on a repository that does not qualify, or with no routed model, runs the paid slot
 only, as today.
 
@@ -93,11 +94,11 @@ placeholders; the personal values live in the deployment's profile.
 
 | # | Check | Runs as |
 |---|---|---|
-| F1 | The synthetic list parses; a malformed list, an unknown tier or an unknown grade fails closed (no model) | `FreeCatalogTests` |
+| F1 | The synthetic list parses; a malformed list, an unknown tier or an unknown grade fails closed (no model) | `FreeRouteTests` |
 | F2 | Route: `good` before `ok`, file order inside a grade, ungraded and `no` never route, a `free/` model drops out without the pool key | `FreeRouteTests` |
 | F3 | Tier: public repository gets both tiers; private, internal, unknown and a failed lookup get `private` only | `FreeRouteTests` |
-| F4 | Fence: a path with a `work` segment (also through `..` and a symlinked parent), a `.devbox` segment, a symlink in the repo that leads to one, and a walk past its bound are all refused | `FreeFenceTests` |
-| F5 | Class map of D2, every preset in `presets/` | `FreeTaskClassTests` |
+| F4 | Fence: a path with a `work` segment (also through `..` and a symlinked parent), a `.devbox` segment, a symlink in the repo that leads to one, and a walk past its bound are all refused | `FreeRouteTests` |
+| F5 | Class map of D2, every preset in `presets/` | `FreeRouteTests`, `FreeFirstRunTests` |
 | F6 | Attempts: rate limit on the first free model moves to the second, then the paid slot; a failed check moves on; `edit` never routes; no model means paid only | `FreeFirstRunTests` |
 | F7 | The run record lists the attempts, and the model of each call is the model that ran | `FreeFirstRunTests` |
 | F8 | `scripts/check.sh` (the devbox form in CLAUDE.md) passes | CI |

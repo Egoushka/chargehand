@@ -13,7 +13,7 @@ public sealed class FreeFirstGate(Profile profile, FreeFirstSettings settings, I
     public IWorkerRuntime Runtime => freeRuntime;
 
     /// <summary>The free models to try for a run of <paramref name="preset"/> on <paramref name="repositoryPath"/>, minus <paramref name="tried"/>; or the reason there are none.</summary>
-    public async Task<FreeOffer> OfferAsync(string preset, NodeKind kind, string? repositoryPath, IReadOnlySet<string> tried, CancellationToken ct)
+    public async Task<FreeOffer> OfferAsync(string preset, NodeKind kind, string? repositoryPath, string? commit, IReadOnlySet<string> tried, CancellationToken ct)
     {
         var task = FreeTaskClass.For(preset, kind.Model, kind.Writes);
         if (task is null || kind.Writes)
@@ -25,7 +25,7 @@ public sealed class FreeFirstGate(Profile profile, FreeFirstSettings settings, I
             return FreeOffer.None(problem, task);
         }
         var (forge, path) = await RepositoryIdentity.IdentifyAsync(profile, repositoryPath, ct).ConfigureAwait(false);
-        return await FreeRoute.OfferAsync(catalog, settings, visibility, path ?? repositoryPath, forge, task, tried, ct).ConfigureAwait(false);
+        return await FreeRoute.OfferAsync(catalog, settings, visibility, path ?? repositoryPath, forge, task, tried, ct, commit).ConfigureAwait(false);
     }
 
     /// <summary>The note the run record keeps about the offer.</summary>
@@ -34,9 +34,11 @@ public sealed class FreeFirstGate(Profile profile, FreeFirstSettings settings, I
             : $"none{(offer.Task is { } t ? $" ({t.ToString().ToLowerInvariant()})" : "")}: {offer.Reason}";
 
     /// <summary>Whether a free attempt's result hands the run to the next model: a rate limit, an unavailable provider or model, a worker that ended failed, or a result that failed its own checks
-    /// all arrive as a failed result. A caller's cancel and a cost cap are the run's own end and stay.</summary>
+    /// all arrive as a failed result with one of these codes and nothing produced. Anything else (a cancel, a cost cap, a bad request or checkout, which every model would meet again) is the run's own end.</summary>
     public static bool FallsThrough(ResultContract result) =>
-        result.Status == ResultStatus.Failed && result.Error?.Code is not (ErrorCode.Cancelled or ErrorCode.CostCapReached or ErrorCode.RepositoryNotAllowed);
+        result.Status == ResultStatus.Failed && result.Artifacts.Count == 0 && result.Error?.Code is
+            ErrorCode.RateLimited or ErrorCode.ProviderUnavailable or ErrorCode.RuntimeUnavailable or ErrorCode.RuntimeVersionMismatch or ErrorCode.InvalidResult
+            or ErrorCode.VerificationFailed or ErrorCode.SessionFailed or ErrorCode.SessionStalled or ErrorCode.DeadlineExceeded or ErrorCode.IntakeFailed or ErrorCode.Internal;
 
     public static string Outcome(ResultContract result) =>
         result.Status == ResultStatus.Failed ? $"failed:{Snake(result.Error?.Code)}" : result.Status.ToString().ToLowerInvariant();

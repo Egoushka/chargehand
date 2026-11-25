@@ -57,6 +57,13 @@ public class FreeRouteTests
     [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = ok")]
     [InlineData("[[model]]\nid = \"zen/x\" trailing\ntier = \"private\"")]
     [InlineData("[[other]]")]
+    [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"public\"\ntier = \"private\"")]   // a repeated key: the last must not win
+    [InlineData("stray junk\n[[model]]\nid = \"zen/x\"\ntier = \"private\"")]
+    [InlineData("[table]\nnot a pair")]
+    [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = { ask = \"ok\", }")]
+    [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = { 4 = \"ok\" }")]
+    [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = { Ask = \"ok\" }")]
+    [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = { ask = \"ok\", ask = \"good\" }")]
     public void A_malformed_list_fails_closed(string toml) => Assert.Throws<FormatException>(() => FreeModelCatalog.Parse(toml));
 
     [Fact]
@@ -106,7 +113,7 @@ public class FreeRouteTests
     [InlineData("default", FreeTaskClass.WorkerSlot, false, FreeTask.Ask)]
     [InlineData("incident", FreeTaskClass.WorkerSlot, false, FreeTask.Ask)]
     [InlineData("code", FreeTaskClass.WorkerSlot, true, FreeTask.Edit)]
-    [InlineData("driven", FreeTaskClass.WorkerSlot, true, FreeTask.Edit)]
+    [InlineData("driven", FreeTaskClass.WorkerSlot, true, FreeTask.Edit)]   // a node that writes, whatever the preset is called
     public void A_node_kind_maps_to_its_task_class(string preset, string slot, bool writes, FreeTask expected) => Assert.Equal(expected, FreeTaskClass.For(preset, slot, writes));
 
     [Fact]
@@ -214,5 +221,98 @@ public class FreeRouteTests
         Assert.Contains(new FreeFirstSettings("/x", ["a/b"]).Problems(), p => p.Contains("deny_path_segments", StringComparison.Ordinal));
         Assert.Empty(new FreeFirstSettings("/x").Problems());
         Assert.Equal(["work", ".devbox"], new FreeFirstSettings("/x").Denied);
+    }
+
+    [Fact]
+    public void A_link_whose_target_has_a_link_in_the_middle_is_followed_all_the_way()
+    {
+        using var root = new TempDir();
+        Directory.CreateDirectory(Path.Combine(root.Path, "work", "app"));
+        // /data/alias -> work; /srv/repos -> /data/alias: the real path of repos/app is work/app, two links away.
+        Directory.CreateDirectory(Path.Combine(root.Path, "data"));
+        Directory.CreateSymbolicLink(Path.Combine(root.Path, "data", "alias"), Path.Combine(root.Path, "work"));
+        Directory.CreateSymbolicLink(Path.Combine(root.Path, "repos"), Path.Combine(root.Path, "data", "alias"));
+        Assert.Equal(Path.Combine(FreeFence.RealPath(root.Path), "work", "app"), FreeFence.RealPath(Path.Combine(root.Path, "repos", "app")));
+        Assert.NotNull(FreeFence.Refusal(Path.Combine(root.Path, "repos", "app"), FreeFence.DefaultDeny));
+
+        var repo = Directory.CreateDirectory(Path.Combine(root.Path, "elsewhere", "r")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(repo, "docs"), Path.Combine(root.Path, "repos"));   // docs -> repos -> data/alias -> work
+        Assert.NotNull(FreeFence.Refusal(repo, FreeFence.DefaultDeny));
+    }
+
+    [Fact]
+    public void A_denied_directory_deeper_inside_a_linked_tree_is_refused_though_the_link_target_is_not_denied()
+    {
+        using var root = new TempDir();
+        Directory.CreateDirectory(Path.Combine(root.Path, "personal", "clients", "acme", "work", "x"));
+        var repo = Directory.CreateDirectory(Path.Combine(root.Path, "repos", "r")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(repo, "ext"), Path.Combine(root.Path, "personal"));
+        Assert.NotNull(FreeFence.Refusal(repo, FreeFence.DefaultDeny));
+        // A directory named work inside the repository itself is the repository's own and is fine.
+        var own = Directory.CreateDirectory(Path.Combine(root.Path, "repos", "own")).FullName;
+        Directory.CreateDirectory(Path.Combine(own, "src", "work"));
+        Assert.Null(FreeFence.Refusal(own, FreeFence.DefaultDeny));
+    }
+
+    [Fact]
+    public void A_link_loop_and_a_missing_directory_are_refusals_not_exceptions()
+    {
+        using var root = new TempDir();
+        var repo = Directory.CreateDirectory(Path.Combine(root.Path, "repos", "r")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(repo, "a"), Path.Combine(repo, "b"));
+        Directory.CreateSymbolicLink(Path.Combine(repo, "b"), Path.Combine(repo, "a"));
+        Assert.NotNull(FreeFence.Refusal(repo, FreeFence.DefaultDeny));
+        Assert.NotNull(FreeFence.Refusal(Path.Combine(root.Path, "nothing"), FreeFence.DefaultDeny));
+    }
+
+    [Fact]
+    public void The_whole_checkout_is_fenced_when_the_run_names_a_subdirectory_of_it()
+    {
+        using var root = new TempDir();
+        Directory.CreateDirectory(Path.Combine(root.Path, "work", "x"));
+        var repo = Directory.CreateDirectory(Path.Combine(root.Path, "repos", "r")).FullName;
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        var sub = Directory.CreateDirectory(Path.Combine(repo, "sub")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(repo, "beside"), Path.Combine(root.Path, "work", "x"));
+        Assert.NotNull(FreeFence.Refusal(sub, FreeFence.DefaultDeny));
+    }
+
+    [Theory]
+    [InlineData("", "/etc", true)]
+    [InlineData("", "../up", true)]
+    [InlineData("a/b", "../../../up", true)]
+    [InlineData("a/b", "../../up", false)]
+    [InlineData("a/b", "../c", false)]
+    [InlineData("", "docs/readme", false)]
+    [InlineData("a", "C:/x", true)]
+    public void A_tracked_link_that_leaves_the_repository_is_told_from_one_that_stays(string linkDir, string target, bool escapes) =>
+        Assert.Equal(escapes, FreeFence.Escapes(linkDir, target));
+
+    [Fact]
+    public void A_pinned_commit_that_tracks_a_link_out_of_the_repository_is_refused_even_when_the_disk_has_none()
+    {
+        using var root = new TempDir();
+        var repo = Directory.CreateDirectory(Path.Combine(root.Path, "repos", "r")).FullName;
+        Git(repo, "init", "-q");
+        File.WriteAllText(Path.Combine(repo, "a.txt"), "a");
+        File.CreateSymbolicLink(Path.Combine(repo, "out"), "/somewhere/else");
+        File.CreateSymbolicLink(Path.Combine(repo, "in"), "a.txt");
+        Git(repo, "add", "-A");
+        Git(repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "x");
+        var commit = Git(repo, "rev-parse", "HEAD").Trim();
+        File.Delete(Path.Combine(repo, "out"));   // the working tree no longer has it
+        Assert.Null(FreeFence.Refusal(repo, FreeFence.DefaultDeny));
+        Assert.NotNull(FreeFence.Refusal(repo, FreeFence.DefaultDeny, commit));
+    }
+
+    private static string Git(string dir, params string[] args)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = dir, RedirectStandardOutput = true };
+        foreach (var a in args)
+            psi.ArgumentList.Add(a);
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var output = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return p.ExitCode == 0 ? output : throw new InvalidOperationException($"git {string.Join(' ', args)} failed");
     }
 }

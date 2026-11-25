@@ -50,7 +50,7 @@ public static class FreeRoute
 
     /// <summary>The offer for a run on <paramref name="repositoryPath"/> (the checkout the server's own mapping names; <paramref name="forge"/> is its verified <c>owner/name</c> or null).</summary>
     public static async Task<FreeOffer> OfferAsync(FreeModelCatalog catalog, FreeFirstSettings settings, IRepositoryVisibility visibility,
-        string? repositoryPath, string? forge, FreeTask? task, IReadOnlySet<string> excluded, CancellationToken ct)
+        string? repositoryPath, string? forge, FreeTask? task, IReadOnlySet<string> excluded, CancellationToken ct, string? commit = null)
     {
         if (task is not { } t)
             return FreeOffer.None("the node has no task class");
@@ -58,7 +58,7 @@ public static class FreeRoute
             return FreeOffer.None("edit runs are not routed to free models", t);
         if (repositoryPath is null)
             return FreeOffer.None("the run names no repository", t);
-        if (FreeFence.Refusal(repositoryPath, settings.Denied) is { } fenced)
+        if (FreeFence.Refusal(repositoryPath, settings.Denied, commit) is { } fenced)
             return FreeOffer.None(fenced, t);
         var seen = forge is null ? RepositoryVisibility.Unknown : await visibility.LookupAsync(forge, ct).ConfigureAwait(false);
         var tier = TierFor(seen);
