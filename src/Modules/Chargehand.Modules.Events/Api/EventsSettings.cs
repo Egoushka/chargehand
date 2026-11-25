@@ -6,11 +6,14 @@ namespace Chargehand.Modules.Events.Api;
 /// each token here is one producer's, bound to its source prefix and its scope grants.</summary>
 /// <param name="Tokens">The producers' tokens; empty: only the owner's key reaches the log.</param>
 /// <param name="Database">The SQLite file; null: <c>events.db</c> beside the run log.</param>
-public sealed record EventsSettings(IReadOnlyList<EventTokenSettings>? Tokens = null, string? Database = null)
+/// <param name="Signals">Plain-English watchers over finished threads (P06); null: off.</param>
+public sealed record EventsSettings(IReadOnlyList<EventTokenSettings>? Tokens = null, string? Database = null, SignalsSettings? Signals = null)
 {
     public IReadOnlyList<string> Problems()
     {
         var problems = new List<string>();
+        if (Signals is not null)
+            problems.AddRange(Signals.Problems());
         var tokens = Tokens ?? [];
         foreach (var token in tokens)
             problems.AddRange(token.Problems());
@@ -70,3 +73,33 @@ public static partial class EventPatterns
     [GeneratedRegex("(^|[^A-Za-z0-9_.-])work/")]
     public static partial Regex WorkPath();
 }
+
+/// <summary>The profile's <c>http.events.signals</c> (P06): each sentence in <paramref name="Items"/> is checked, by a cheap read-only model run, against every thread that closes; a hit is kept for the console.
+/// Off unless <paramref name="Enabled"/>, because every check is a model call.</summary>
+/// <param name="Enabled">Default false.</param>
+/// <param name="MaxChecksPerDay">Model calls per UTC day across all signals (default 50); a thread that closes after it is not checked.</param>
+/// <param name="Preset">The read-only preset the judge runs on (default <c>cheap</c>).</param>
+/// <param name="Items">The signals, each a unique id and a sentence.</param>
+public sealed record SignalsSettings(bool Enabled = false, int MaxChecksPerDay = 50, string Preset = "cheap", IReadOnlyList<SignalItem>? Items = null)
+{
+    public IReadOnlyList<string> Problems()
+    {
+        var problems = new List<string>();
+        if (MaxChecksPerDay < 1)
+            problems.Add("http.events.signals.max_checks_per_day must be at least 1");
+        if (string.IsNullOrWhiteSpace(Preset))
+            problems.Add("http.events.signals.preset must not be empty");
+        foreach (var item in Items ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Text))
+                problems.Add("http.events.signals.items: a signal needs an id and a text");
+        }
+        foreach (var id in (Items ?? []).GroupBy(i => i.Id, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key))
+            problems.Add($"http.events.signals.items: the id '{id}' is used twice");
+        return problems;
+    }
+}
+
+/// <param name="Id">Unique; names the signal on a hit.</param>
+/// <param name="Text">What to watch for, in plain English: "session stuck in a loop".</param>
+public sealed record SignalItem(string Id, string Text);
