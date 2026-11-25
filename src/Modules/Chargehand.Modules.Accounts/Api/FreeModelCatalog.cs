@@ -62,6 +62,9 @@ public sealed class FreeModelCatalog
             }
             else if (line.StartsWith('['))
             {
+                // Only the provider tables of the list are skipped: a model written as [model] or [model.tasks] would lose its keys silently.
+                if (!line.StartsWith("[providers.", StringComparison.Ordinal))
+                    throw new FormatException($"line {lineNo}: unknown table {line}");
                 current = null;
             }
             else
@@ -70,6 +73,8 @@ public sealed class FreeModelCatalog
                 if (eq <= 0)
                     throw new FormatException($"line {lineNo}: expected key = value");
                 var key = line[..eq].Trim();
+                if (key.Length == 0 || !key.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))
+                    throw new FormatException($"line {lineNo}: keys are bare words");
                 var value = ParseValue(line[(eq + 1)..].Trim(), lineNo);
                 // A repeated key is an error in TOML: the last one winning could turn a public model private.
                 if (current is not null && !current.TryAdd(key, value))
@@ -145,6 +150,8 @@ public sealed class FreeModelCatalog
             if (eq <= 0)
                 throw new FormatException($"line {lineNo}: bad inline table");
             var key = rest[..eq].Trim();
+            if (key.Length == 0 || !key.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))
+                throw new FormatException($"line {lineNo}: keys are bare words");
             var value = rest[(eq + 1)..].TrimStart();
             if (!result.TryAdd(key, ParseString(value, lineNo, out var end)))
                 throw new FormatException($"line {lineNo}: {key} is set twice");

@@ -192,6 +192,7 @@ public sealed class Orchestrator(
                 var sandbox = kind.Writes ? (sandboxFor ?? SandboxSelector.Select)(profile.Sandbox) : null;
                 // A key that cannot be used stops the run before anything is spent (ADR 0036).
                 signingKey?.Dispose();
+                signingKey = null;
                 signingKey = ResultSigner.Load(profile.Signing, Environment.GetEnvironmentVariable);
                 // A completed review of the same commit and diff answers this one (issue 448); the stored result is signed and recorded as this run's.
                 if (reuseReviews && await ReviewReuse.FindAsync(runLog, request, actor, ct) is { } stored)

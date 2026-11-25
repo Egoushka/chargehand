@@ -60,6 +60,8 @@ public class FreeRouteTests
     [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"public\"\ntier = \"private\"")]   // a repeated key: the last must not win
     [InlineData("stray junk\n[[model]]\nid = \"zen/x\"\ntier = \"private\"")]
     [InlineData("[table]\nnot a pair")]
+    [InlineData("[model]\nid = \"zen/x\"\ntier = \"private\"")]          // a model written as a plain table would lose its keys
+    [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\n'tier' = \"public\"")]
     [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = { ask = \"ok\", }")]
     [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = { 4 = \"ok\" }")]
     [InlineData("[[model]]\nid = \"zen/x\"\ntier = \"private\"\ntasks = { Ask = \"ok\" }")]
@@ -285,8 +287,30 @@ public class FreeRouteTests
     [InlineData("a/b", "../c", false)]
     [InlineData("", "docs/readme", false)]
     [InlineData("a", "C:/x", true)]
+    [InlineData("a", "b\\c/../..", false)]   // a backslash is part of a name on Linux: two names up from "a/b\\c" is the root, not outside it
+    [InlineData("", "a\\b\\c\\d/../../..", true)]
     public void A_tracked_link_that_leaves_the_repository_is_told_from_one_that_stays(string linkDir, string target, bool escapes) =>
         Assert.Equal(escapes, FreeFence.Escapes(linkDir, target));
+
+    [Fact]
+    public void A_climb_from_a_tracked_link_is_refused_because_the_name_count_no_longer_says_where_it_is()
+    {
+        var links = new HashSet<string> { "a/l" };
+        Assert.True(FreeFence.Escapes("", "a/l/../../..", links));   // the second name is a link: after it the count means nothing
+        Assert.True(FreeFence.Escapes("", "a/l/..", links));
+        Assert.False(FreeFence.Escapes("", "a/m/..", links));
+        Assert.False(FreeFence.Escapes("", "a/l/x", links));         // going down through a link stays inside
+    }
+
+    [Fact]
+    public void A_link_named_with_a_backslash_is_still_followed()
+    {
+        using var root = new TempDir();
+        Directory.CreateDirectory(Path.Combine(root.Path, "work", "x"));
+        var repo = Directory.CreateDirectory(Path.Combine(root.Path, "repos", "r")).FullName;
+        Directory.CreateSymbolicLink(Path.Combine(repo, "evil\\x"), Path.Combine(root.Path, "work", "x"));
+        Assert.NotNull(FreeFence.Refusal(repo, FreeFence.DefaultDeny));
+    }
 
     [Fact]
     public void A_pinned_commit_that_tracks_a_link_out_of_the_repository_is_refused_even_when_the_disk_has_none()

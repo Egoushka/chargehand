@@ -68,52 +68,102 @@ public static class FreeFence
         return null;
     }
 
-    /// <summary>The symlinks <paramref name="commit"/> tracks whose target leaves the repository (absolute, or climbing out of it) are refused: the clone a worker reads is not this directory,
-    /// so where such a link would lead cannot be known here.</summary>
+    private const int MaxTrackedLinks = 5_000;
+
+    private const int MaxListingBytes = 64 * 1024 * 1024;
+
+    private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>The symlinks <paramref name="commit"/> tracks whose target leaves the repository (absolute, or climbing out of it), or climbs after passing through another tracked link, are
+    /// refused: the clone a worker reads is not this directory, so where such a link would lead cannot be known here.</summary>
     private static string? TrackedLinkRefusal(string top, string commit)
     {
-        var listing = Git(top, "ls-tree", "-r", "-z", commit);
-        foreach (var line in listing.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        const string Refused = "the pinned commit tracks a symlink that leaves the repository";
+        var listing = Git(top, null, MaxListingBytes, "ls-tree", "-r", "-z", commit);
+        var links = new List<(string Path, string Oid)>();
+        foreach (var line in System.Text.Encoding.UTF8.GetString(listing).Split('\0', StringSplitOptions.RemoveEmptyEntries))
         {
             var tab = line.IndexOf('\t', StringComparison.Ordinal);
             var meta = line[..tab].Split(' ');
-            if (meta[0] != "120000")
-                continue;
-            var target = Git(top, "cat-file", "blob", meta[2]).TrimEnd('\n');
-            if (Escapes(Path.GetDirectoryName(line[(tab + 1)..]) ?? "", target))
-                return "the pinned commit tracks a symlink that leaves the repository";
+            if (meta[0] == "120000")
+                links.Add((line[(tab + 1)..], meta[2]));
+        }
+        if (links.Count > MaxTrackedLinks)
+            return "the pinned commit tracks too many symlinks to check";
+        if (links.Count == 0)
+            return null;
+        // One process reads every link target: "<oid> blob <size>\n<content>\n" per object.
+        var blobs = Git(top, string.Concat(links.Select(l => l.Oid + "\n")), MaxListingBytes, "cat-file", "--batch");
+        var paths = links.Select(l => l.Path).ToHashSet(StringComparer.Ordinal);
+        var at = 0;
+        foreach (var (path, _) in links)
+        {
+            var eol = Array.IndexOf(blobs, (byte)'\n', at);
+            var header = System.Text.Encoding.UTF8.GetString(blobs, at, eol - at).Split(' ');
+            var size = int.Parse(header[2], System.Globalization.CultureInfo.InvariantCulture);
+            var target = System.Text.Encoding.UTF8.GetString(blobs, eol + 1, size);
+            at = eol + 1 + size + 1;
+            if (Escapes(Path.GetDirectoryName(path) ?? "", target, paths))
+                return Refused;
         }
         return null;
     }
 
-    /// <summary>Whether <paramref name="target"/>, read from <paramref name="linkDir"/> (relative to the repository root), ends outside the root.</summary>
-    internal static bool Escapes(string linkDir, string target)
+    /// <summary>Whether <paramref name="target"/>, read from <paramref name="linkDir"/> (relative to the repository root), ends outside the root, or climbs with <c>..</c> from a place that is itself a
+    /// tracked link (<paramref name="trackedLinks"/>, root-relative paths), where the count of names no longer says where the path is. Only <c>/</c> separates names: a backslash is part of a name on Linux.</summary>
+    internal static bool Escapes(string linkDir, string target, IReadOnlySet<string>? trackedLinks = null)
     {
         if (target.StartsWith('/') || target.StartsWith('\\') || target.Contains(':', StringComparison.Ordinal))
             return true;
-        var depth = linkDir.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries).Length;
-        foreach (var part in target.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries))
+        var stack = new List<string>(Parts(linkDir));
+        foreach (var part in target.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
-            depth += part switch { ".." => -1, "." => 0, _ => 1 };
-            if (depth < 0)
+            if (part == ".")
+                continue;
+            if (part != "..")
+            {
+                stack.Add(part);
+                continue;
+            }
+            if (stack.Count == 0 || (trackedLinks?.Contains(string.Join('/', stack)) ?? false))
                 return true;
+            stack.RemoveAt(stack.Count - 1);
         }
         return false;
     }
 
-    private static string Git(string dir, params string[] args)
+    private static string[] Parts(string path) => path.Split(Path.DirectorySeparatorChar == '/' ? ['/'] : ['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>Runs git and returns its standard output; throws <see cref="InvalidOperationException"/> on a failure, a timeout or more than <paramref name="limit"/> bytes, so the fence refuses.</summary>
+    private static byte[] Git(string dir, string? stdin, int limit, params string[] args)
     {
-        var psi = new ProcessStartInfo("git") { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true };
+        var psi = new ProcessStartInfo("git") { WorkingDirectory = dir, RedirectStandardInput = stdin is not null, RedirectStandardOutput = true, RedirectStandardError = true };
+        // Read-only calls on a checkout another user owns would otherwise fail git's ownership check and refuse every such repository.
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("safe.directory=*");
         foreach (var a in args)
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("git did not start");
-        var output = p.StandardOutput.ReadToEnd();
-        p.WaitForExit();
-        return p.ExitCode == 0 ? output : throw new InvalidOperationException("git could not read the commit");
+        var errors = p.StandardError.ReadToEndAsync();
+        var output = new MemoryStream();
+        var copy = p.StandardOutput.BaseStream.CopyToAsync(output);
+        if (stdin is not null)
+        {
+            p.StandardInput.Write(stdin);
+            p.StandardInput.Close();
+        }
+        if (!p.WaitForExit(GitTimeout))
+        {
+            p.Kill(entireProcessTree: true);
+            throw new InvalidOperationException("git timed out");
+        }
+        copy.Wait(GitTimeout);
+        errors.Wait(GitTimeout);
+        return p.ExitCode == 0 && output.Length <= limit ? output.ToArray() : throw new InvalidOperationException("git could not read the commit");
     }
 
     private static bool Denied(string path, IReadOnlyList<string> deny) =>
-        path.Split('/', '\\').Any(seg => deny.Any(d => seg.Equals(d, StringComparison.OrdinalIgnoreCase)));
+        Parts(path).Any(seg => deny.Any(d => seg.Equals(d, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>A directory that has a denied directory right inside it (a home or a checkout root): reading it reads the denied one.</summary>
     private static bool Holds(string path, IReadOnlyList<string> deny) =>
@@ -123,7 +173,7 @@ public static class FreeFence
     /// Throws <see cref="IOException"/> on a loop.</summary>
     public static string RealPath(string path)
     {
-        var pending = new Stack<string>(Path.GetFullPath(path).Split('/', '\\', StringSplitOptions.RemoveEmptyEntries).Reverse());
+        var pending = new Stack<string>(Parts(Path.GetFullPath(path)).Reverse());
         var current = Path.GetPathRoot(Path.GetFullPath(path)) ?? "/";
         for (var hops = 0; pending.Count > 0;)
         {
@@ -146,7 +196,7 @@ public static class FreeFence
                 throw new IOException("too many levels of symbolic links");
             if (Path.IsPathRooted(link))
                 current = Path.GetPathRoot(link) ?? "/";
-            foreach (var piece in link.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries).Reverse())
+            foreach (var piece in Parts(link).Reverse())
                 pending.Push(piece);
         }
         return current;
