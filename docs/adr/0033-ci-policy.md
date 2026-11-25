@@ -53,3 +53,11 @@ Option 3.
 - A finding shipped in a release that a pull request scan would have caught.
 - The repository starts taking pull requests from people the maintainer does not review.
 - Hosted runner minutes stop being free for this repository.
+
+## Amendment 2026-11-25
+
+- `ci.yml` runs on pull requests only. A squash merge lands the tree the pull request already tested, and the push run on
+  main re-ran the ~25 min suite (8 runs a week). `release-please.yml` and `release.yml` do not read `ci`; the ruleset
+  requires `ci-gate` and `prompt-ci` on the pull request.
+- `dotnet format` is its own `format` job, in `ci-gate`'s `needs`, so it runs beside build and test.
+- `sonar.yml` is deleted: its 100 recorded runs all skipped the analysis step; nothing was ever sent to SonarQube.

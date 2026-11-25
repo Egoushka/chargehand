@@ -1,17 +1,17 @@
 name: ci
 
+# Pull requests only: a squash merge lands the tree the pull request already tested, so a push run on main re-ran the
+# ~25 min suite for nothing (ADR 0033, amendment 2026-11-25). Nothing else reads this workflow's push runs.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
 
-# A newer push to a pull request supersedes the run in flight; main keeps every run.
+# A newer push to a pull request supersedes the run in flight.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   # ADR 0033: a pull request that touches only prose skips the build jobs. Nothing else reads these files: tests read
@@ -44,6 +44,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,14 +64,29 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet restore
-      - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet build --no-restore -c Release -warnaserror
       - run: dotnet test --no-build -c Release
-      # Specs/2026-11-11-claim-drift-watch.md: what the guide pages cite (<!-- cites: ... -->) still exists. Notify-only: runs on main and on code pull requests.
+      # Specs/2026-11-11-claim-drift-watch.md: what the guide pages cite (<!-- cites: ... -->) still exists. Notify-only: runs on code pull requests.
       - name: Guide citations are checked
         run: dotnet run --no-build -c Release --project src/Chargehand.Cli -- claims check --root .
       - name: The current version has a changelog section
         run: scripts/release-notes.sh "$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)" > /dev/null
+
+  # Format runs beside build and test instead of ahead of them: about two minutes off the longest path.
+  format:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - run: dotnet restore
+      - run: dotnet format --verify-no-changes --no-restore
 
   # ADR 0056: the operator console (web/console) is checked, tested and built apart from dotnet. The smoke test drives the built
   # app in Chromium with the API mocked in the browser, under the same Content-Security-Policy the server sends: no server, no network.
@@ -215,7 +231,7 @@ jobs:
   # merges without the build jobs, and a job renamed or added here needs no change to the ruleset.
   ci-gate:
     if: always()
-    needs: [changes, build, web, package, aot, plugin, compose, secrets, commits, dependencies]
+    needs: [changes, build, format, web, package, aot, plugin, compose, secrets, commits, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:
