@@ -10,7 +10,7 @@
 
   <!-- The store is SQLite, as the event log's is (ADR 0090). -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
   </ItemGroup>
 
 </Project>
