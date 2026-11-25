@@ -68,7 +68,8 @@ public sealed record Profile(
     PeerCloneSettings? PeerClone = null,
     PoolsSettings? Pools = null,
     IReadOnlyList<string>? NugetTrustedSigners = null,
-    IReadOnlyDictionary<string, IReadOnlyList<string>>? PublicFiles = null)
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? PublicFiles = null,
+    FreeFirstSettings? FreeFirst = null)
 {
     /// <summary>A fixed directory outside $HOME (ADR 0003 forbids worker checkouts under it), created on first use.</summary>
     public const string DefaultWorkerRoot = "/var/tmp/chargehand/work";
@@ -157,6 +158,15 @@ public sealed record Profile(
         if (profile.PublicFree?.Problems().ToList() is { Count: > 0 } poolProblems)
             throw new ChargehandException(ErrorCode.InvalidRequest, "public_free: " + string.Join("; ", poolProblems),
                 "Fix public_free in the profile; docs/adr/0093-runs-on-public-repositories-use-a-free-model-pool.md lists the fields.");
+        if (profile.FreeFirst is { } freeFirst)
+        {
+            if (freeFirst.Problems().ToList() is { Count: > 0 } freeProblems)
+                throw new ChargehandException(ErrorCode.InvalidRequest, "free_first: " + string.Join("; ", freeProblems),
+                    "Fix free_first in the profile; docs/specs/2026-11-25-free-models-first.md lists the fields.");
+            if (profile.Opencode is null)
+                throw new ChargehandException(ErrorCode.InvalidRequest, "free_first needs an opencode block: free models run on an OpenCode server",
+                    "Add opencode (url, password_secret, version) to the profile, or remove free_first.");
+        }
         profile.PeerClone?.Validate();
         if (profile.Http?.Accounts?.Any(a => a.PublicClone) == true && profile.PeerClone is null)
             throw new ChargehandException(ErrorCode.InvalidRequest, "http.accounts: an account has public_clone: true, but the profile has no peer_clone",

@@ -33,6 +33,7 @@
   "pools": null,
   "nuget_trusted_signers": null,
   "public_files": null,
+  "free_first": null,
   "roots": [
     "/var/tmp/chargehand/work"
   ],

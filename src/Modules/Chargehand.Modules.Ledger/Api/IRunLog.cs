@@ -143,6 +143,8 @@ public sealed record InstructionRef(string Key, string Sha256);
 /// <param name="IntakeSkipped">True: a structured caller's request ran on a spec built from its inputs, with no intake call (issue 429); null: intake ran as before.</param>
 /// <param name="Route">The pool, tier and model the budget router chose for the run's worker or session (ADR 0095); its cost and outcome are the result's. Null: the router is off. When the run's sessions moved between pools, the last.</param>
 /// <param name="Routes">Set only when a task's sessions ran on more than one route (ADR 0095, D-113): every route in the order it was used, each with the cost spent on it. Null: <see cref="Route"/> is the only one and the result's cost is its.</param>
+/// <param name="Attempts">Set only when free-first routing is on (spec 2026-11-25): each model the run tried, in order, so a fallback to the paid slot is visible. Null: the router is off.</param>
+/// <param name="FreeFirst">Why a run on the free-first path got no free model (the fence, the tier, no graded model), or the class and tier it was offered; null: free-first is off.</param>
 /// <param name="SubscriptionUsage">The subscription's usage windows as the provider last reported them while the run ran (ADR 0098), as fractions of each window: a share, not dollars. Null: an API-key run, a runtime that reports none, or a record from before it existed.</param>
 public sealed record RunRecord(
     string RunId,
@@ -159,7 +161,15 @@ public sealed record RunRecord(
     bool? IntakeSkipped = null,
     RunRoute? Route = null,
     IReadOnlyList<RunRoute>? Routes = null,
-    SubscriptionUsage? SubscriptionUsage = null);
+    SubscriptionUsage? SubscriptionUsage = null,
+    IReadOnlyList<RunAttempt>? Attempts = null,
+    string? FreeFirst = null);
+
+/// <summary>One try of a run on a model, free or paid, in the order it was made (spec 2026-11-25, D6).</summary>
+/// <param name="Model">The model the attempt's worker ran on, as <c>provider/model</c>; <c>auto</c> when the runtime picked it.</param>
+/// <param name="Runtime"><c>opencode</c> for a free model, <c>claude_code</c> or the profile's own runtime for the paid slot.</param>
+/// <param name="Outcome"><c>completed</c>, or the status of the result that ended it (<c>failed:rate_limited</c>, ...); a free attempt that failed is followed by the next.</param>
+public sealed record RunAttempt(string Model, string Runtime, bool Free, string Outcome);
 
 /// <summary>Who paid for a run and on what (ADR 0095): the router reads each pool's spend back from these.</summary>
 /// <param name="DataClass">The class of the data the run touched (<c>public</c>, <c>owner_private</c>, <c>restricted</c>) that the router gated the model by; null on a record from before it existed.</param>
