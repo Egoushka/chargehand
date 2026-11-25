@@ -24,6 +24,7 @@ public class ContractParityTests
         new(ContractSchemas.Result, ["properties", "status"], typeof(ResultStatus)),
         new(ContractSchemas.Result, ["properties", "error", "properties", "code"], typeof(ErrorCode)),
         new(ContractSchemas.Result, ["properties", "claims", "items", "properties", "support"], typeof(ClaimSupport)),
+        new(ContractSchemas.Result, ["properties", "verdict"], typeof(ReviewVerdict)),
         new(ContractSchemas.Result, ["properties", "evidence", "items", "properties", "kind"], typeof(EvidenceKind)),
         new(ContractSchemas.Result, ["$defs", "prompt_chain", "properties", "blocks", "items", "properties", "source"], typeof(BlockSource)),
         new(ContractSchemas.RunStatus, ["properties", "status"], typeof(RunState)),

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Chargehand.Contracts;
 using Chargehand.Modules.Research.Api;
@@ -127,5 +128,36 @@ public class ResultAssemblerTests
         var outcome = ResultAssembler.Assemble(block, Envelope());
         Assert.Null(outcome.Contract);
         Assert.Contains("80000 bytes", Assert.Single(outcome.Errors), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("approve", ReviewVerdict.Approve)]
+    [InlineData("changes", ReviewVerdict.Changes)]
+    [InlineData("blocked", ReviewVerdict.Blocked)]
+    public void A_reviews_verdict_reaches_the_contract_and_its_json(string json, ReviewVerdict verdict)
+    {
+        // Issue 446: 1 of 128 reviews said approve or request changes; the review preset now fills a verdict.
+        var block = GoodBlock.Replace("\"open_questions\":[],\"confidence\":0.9}", $"\"open_questions\":[],\"confidence\":0.9,\"verdict\":\"{json}\"}}", StringComparison.Ordinal);
+        var contract = ResultAssembler.Assemble($"```json\n{block}\n```", Envelope()).Contract!;
+        Assert.Equal(verdict, contract.Verdict);
+        Assert.Equal(json, JsonSerializer.SerializeToNode(contract, ContractJson.Options)!["verdict"]!.GetValue<string>());
+        Assert.Equal(json, JsonSerializer.SerializeToNode(contract, ContractJsonContext.Default.ResultContract)!["verdict"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void A_result_without_a_verdict_has_none_and_writes_none()
+    {
+        var contract = ResultAssembler.Assemble($"```json\n{GoodBlock}\n```", Envelope()).Contract!;
+        Assert.Null(contract.Verdict);
+        Assert.False(JsonSerializer.SerializeToNode(contract, ContractJson.Options)!.AsObject().ContainsKey("verdict"));
+    }
+
+    [Fact]
+    public void A_verdict_outside_the_enum_is_reported_for_the_repair_turn()
+    {
+        var block = GoodBlock.Replace("\"open_questions\":[],\"confidence\":0.9}", "\"open_questions\":[],\"confidence\":0.9,\"verdict\":\"lgtm\"}", StringComparison.Ordinal);
+        var outcome = ResultAssembler.Assemble($"```json\n{block}\n```", Envelope());
+        Assert.Null(outcome.Contract);
+        Assert.Contains(outcome.Errors, e => e.Contains("verdict", StringComparison.Ordinal));
     }
 }

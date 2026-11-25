@@ -76,6 +76,7 @@
     },
     "name": { "type": "string", "minLength": 1, "description": "A friendly name for the run, like \"Brave Capybara\", derived from the run id. For people: not unique, so match on the id. Inside the signed content." },
     "actor": { "type": "string", "minLength": 1, "description": "The account that started the run (ADR 0050): owner for the server's single key. Absent for a run started from the CLI. Inside the signed content." },
+    "verdict": { "enum": ["approve", "changes", "blocked"], "description": "A review's call on the change it reviewed, filled by the review preset: approve (merge as is), changes (the claims list what to fix first), blocked (cannot be merged, or could not be judged; the summary says why). Absent: not a review, or the worker gave none. Inside the signed content." },
     "signature": {
       "type": "object",
       "description": "ES256 (ECDSA P-256, SHA-256, IEEE P1363) over the RFC 8785 canonical form of this object without this member (ADR 0036). It says who produced the JSON, not that it is true.",

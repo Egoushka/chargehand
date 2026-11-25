@@ -32,7 +32,7 @@ public static class ResultAssembler
     /// <summary>result/v1: inline artifact content is at most 64 KiB (ADR 0009).</summary>
     public const int MaxInlineBytes = TaskResultBuilder.MaxInlineBytes;
 
-    private static readonly string[] WorkerKeys = ["status", "summary", "claims", "evidence", "artifacts", "open_questions", "confidence"];
+    private static readonly string[] WorkerKeys = ["status", "summary", "claims", "evidence", "artifacts", "open_questions", "confidence", "verdict"];
 
     public static AssembleOutcome Assemble(string finalMessage, ResultEnvelope envelope)
     {
