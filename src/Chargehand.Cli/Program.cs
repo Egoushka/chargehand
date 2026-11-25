@@ -81,6 +81,7 @@ const string Usage = """
                                    proposes eval items (JSONL on stdout) for review/worker, code/writer and driven/session from issue #452's
                                    classified human-edits store, one per commit whose category names a lesson (CHARGEHAND issue #453)
       eval support <examples.jsonl> runs the support judge over labelled claims and prints agreement and every miss
+      eval bounty <claims.jsonl> --repo <dir> --commit <sha>   queues the claims, has the disprove preset try each, and records an accepted disproof in bounty.jsonl
       eval score-claims <claims.jsonl> --repo <dir> --commit <sha> [--out <verdicts.jsonl>]   resolves each claim's path:line locators at the commit and judges the cited text
       eval push <cell>             pushes reviewed items (JSONL on stdin) to the cell's Langfuse dataset
       eval gate <base> <change> [--cells a,b] [--changed-files f] [--pr-body f] [--name n] [--cells-file f]
@@ -364,6 +365,8 @@ switch (argv)
         return await EvalSupport(examplesFile);
     case ["eval", "score-claims", var claimsFile, .. var scoreOptions]:
         return await EvalScoreClaims(claimsFile, scoreOptions);
+    case ["eval", "bounty", var seedFile, .. var bountyOptions]:
+        return await EvalBounty(seedFile, bountyOptions);
     case ["eval", "levers", .. var options]:
         return await EvalLevers(options);
     case ["eval", "gate", var baseRoot, var changeRoot, .. var options]:
@@ -494,6 +497,28 @@ async Task<int> EvalScoreClaims(string claimsFile, IReadOnlyList<string> options
     Console.WriteLine($"judge model: {profile.IntakeModel ?? "the runtime's default"}");
     Console.WriteLine(ClaimScorer.Report(scored));
     return scored.Any(s => s.Outcome == ClaimOutcome.Unchecked) ? 1 : 0;
+}
+
+async Task<int> EvalBounty(string seedFile, IReadOnlyList<string> options)
+{
+    string? Option(string name) => options.SkipWhile(o => o != name).Skip(1).FirstOrDefault();
+    if (Option("--repo") is not { } repo || Option("--commit") is not { } commit)
+    {
+        Console.Error.WriteLine("usage: eval bounty <claims.jsonl> --repo <dir> --commit <sha>");
+        return 2;
+    }
+    var (runtime, runtimeVersion) = await Connect();
+    var stateDirectory = Path.GetDirectoryName(Path.GetFullPath(runLogPath))!;
+    var queue = new Chargehand.Verification.ClaimQueue(Path.Combine(stateDirectory, "claims.jsonl"));
+    var ledger = new Chargehand.Verification.BountyLedger(Path.Combine(stateDirectory, "bounty.jsonl"));
+    var orchestrator = new Orchestrator(profile.WithLaunchDirectory(Directory.GetCurrentDirectory()), runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer());
+    var counts = await ClaimBounty.RunAsync(orchestrator, runtime, Orchestrator.ParseModel(profile.IntakeModel), queue, ledger, ClaimBounty.ReadSeed(File.ReadLines(seedFile)), Path.GetFullPath(repo), commit, ct);
+    Console.WriteLine($"disproved: {counts.Disproved}");
+    Console.WriteLine($"stands: {counts.Stands}");
+    Console.WriteLine($"open: {counts.Open}");
+    Console.WriteLine($"skipped (already resolved): {counts.Skipped}");
+    Console.WriteLine($"stale: {counts.Stale}");
+    return 0;
 }
 
 /// <summary>Driven sessions (ADR 0039): null while the profile has them off, so nothing about containers is read or connected.</summary>
