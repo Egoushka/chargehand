@@ -10,7 +10,8 @@ namespace Chargehand.Warming;
 /// the shared folder directly would skip the check. With <paramref name="pnpmStoreRoot"/>, a step with a <see cref="WarmStep.Scope"/> gets a pnpm
 /// store of its own under it (<c>pnpm_config_store_dir</c>), so one repository's install cannot plant files another repository's install links.
 /// Every step runs with pnpm's package-manager switch off, so a <c>packageManager</c> field cannot make pnpm download and run another pnpm.</summary>
-public sealed class SandboxedStepRunner(ISandbox sandbox, bool network, IReadOnlyList<string> passEnv, IReadOnlyDictionary<string, string> env, IReadOnlyList<string> sharedCaches, string? pnpmStoreRoot = null) : IStepRunner
+public sealed class SandboxedStepRunner(ISandbox sandbox, bool network, IReadOnlyList<string> passEnv, IReadOnlyDictionary<string, string> env, IReadOnlyList<string> sharedCaches,
+    string? pnpmStoreRoot = null, IReadOnlyList<string>? allowedHosts = null) : IStepRunner
 {
     public static TimeSpan Timeout { get; } = TimeSpan.FromMinutes(10);
 
@@ -34,7 +35,7 @@ public sealed class SandboxedStepRunner(ISandbox sandbox, bool network, IReadOnl
             environment["NUGET_PACKAGES"] = staging;
             writable.Add(staging);
         }
-        var spec = new SandboxSpec([step.File!, .. step.Args], step.WorkDir, Timeout, network, passEnv, environment, writable);
+        var spec = new SandboxSpec([step.File!, .. step.Args], step.WorkDir, Timeout, network, passEnv, environment, writable, allowedHosts);
         var result = await sandbox.RunAsync(spec, ct).ConfigureAwait(false);
         return new StepExit(result.ExitCode, result.TimedOut, result.OutputTail);
     }

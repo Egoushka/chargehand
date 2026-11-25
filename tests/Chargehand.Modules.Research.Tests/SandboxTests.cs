@@ -197,6 +197,60 @@ public class SandboxTests
         Assert.Equal("k", launch.Environment["AGENT_KEY"]);
     }
 
+    [MacOsFact]
+    public void A_wrapped_seatbelt_command_with_allowed_hosts_is_narrowed_to_the_proxys_port()
+    {
+        using var work = new TempDir();
+        using var launch = new SeatbeltSandbox().Wrap(Spec(work.Path, true, "true") with { AllowedHosts = ["allowed.test"] });
+
+        Assert.Contains("(allow network-outbound (remote ip \"127.0.0.1:", launch.Arguments[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("(allow network*)", launch.Arguments[1], StringComparison.Ordinal);
+        Assert.StartsWith("http://127.0.0.1:", launch.Environment["HTTPS_PROXY"], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_wrapped_bubblewrap_command_with_allowed_hosts_is_forced_through_the_loopback_proxy()
+    {
+        using var work = new TempDir();
+        var launch = new BubblewrapSandbox().Wrap(Spec(work.Path, true, "true") with { AllowedHosts = ["allowed.test"] });
+        try
+        {
+            var key = launch.Arguments.ToList().IndexOf("HTTPS_PROXY");
+            Assert.True(key > 0, "HTTPS_PROXY should have been set in the bwrap --setenv arguments");
+            Assert.Equal("--setenv", launch.Arguments[key - 1]);
+            Assert.StartsWith("http://127.0.0.1:", launch.Arguments[key + 1], StringComparison.Ordinal);
+            Assert.Contains("--share-net", launch.Arguments);
+        }
+        finally { launch.Dispose(); }
+    }
+
+    [Fact]
+    public void A_wrapped_bubblewrap_command_with_no_allowed_hosts_sets_no_proxy_variable()
+    {
+        using var work = new TempDir();
+        using var launch = new BubblewrapSandbox().Wrap(Spec(work.Path, true, "true"));
+
+        Assert.DoesNotContain("HTTPS_PROXY", launch.Arguments);
+    }
+
+    [Fact]
+    public void Allowed_hosts_are_ignored_without_network_even_in_bubblewrap()
+    {
+        using var work = new TempDir();
+        using var launch = new BubblewrapSandbox().Wrap(Spec(work.Path, false, "true") with { AllowedHosts = ["allowed.test"] });
+
+        Assert.DoesNotContain("HTTPS_PROXY", launch.Arguments);
+        Assert.DoesNotContain("--share-net", launch.Arguments);
+    }
+
+    [Fact]
+    public void Seatbelt_with_an_egress_port_narrows_the_profile_to_that_loopback_port_instead_of_all_network()
+    {
+        var p = SeatbeltSandbox.Profile(Spec("/w/run", true, "true"), "/h", "/t", egressPort: 4321);
+        Assert.Contains("(allow network-outbound (remote ip \"127.0.0.1:4321\"))", p, StringComparison.Ordinal);
+        Assert.DoesNotContain("(allow network*)", p, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_wrapped_bubblewrap_command_sets_the_environment_inside_and_runs_the_argv_last()
     {

@@ -477,7 +477,7 @@ public sealed class Orchestrator(
         var workspace = kind.Writes ? await RunWorkspace.CreateAsync(directory, commit, profile.WorkerRoot, runId, plan[0].Id, ct) : null;
         if (workspace is not null)
             directory = workspace.Directory;
-        var verifier = sandbox is null ? null : new Verifier(sandbox, profile.Sandbox?.Network ?? false, profile.Sandbox?.Env ?? []);
+        var verifier = sandbox is null ? null : new Verifier(sandbox, profile.Sandbox?.Network ?? false, profile.Sandbox?.Env ?? [], profile.Sandbox?.AllowedHosts);
         var verify = kind.Verify ?? new VerifySettings();
         VerifyOutcome? lastCheck = null;
         VerifyPlan? verifyPlan = null;
