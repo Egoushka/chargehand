@@ -198,6 +198,18 @@
         "env": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of environment variables passed to the command besides PATH, LANG, LC_ALL and TERM." }
       }
     },
+    "free_first": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["models_file"],
+      "description": "Free models first (docs/specs/2026-11-25-free-models-first.md). A run that does not write tries the free models of its task class, then its paid model. Needs the opencode block: free models run on that OpenCode server, whatever the profile's runtime. Absent: no run uses a free model.",
+      "properties": {
+        "models_file": { "type": "string", "minLength": 1, "description": "Path of the mounted, read-only list of free models (TOML), read on every run. Missing or malformed: no free model." },
+        "deny_path_segments": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": ["work", ".devbox"], "description": "A repository whose real path has one of these as a directory name, or that holds a symlink to one, never goes to a free model." },
+        "providers": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": ["opencode"], "description": "The providers the OpenCode server holds; a listed model of another provider is not offered." },
+        "github_token_secret": { "type": "string", "minLength": 1, "description": "The secret item holding a GitHub token for the visibility lookup; none: the lookup is unauthenticated, so a private repository reads as unknown and gets the private tier, which is the safe side." }
+      }
+    },
     "public_free": {
       "type": "object",
       "additionalProperties": false,

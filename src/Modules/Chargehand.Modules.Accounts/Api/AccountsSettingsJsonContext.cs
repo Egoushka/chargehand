@@ -8,4 +8,5 @@ namespace Chargehand.Modules.Accounts.Api;
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip)]
 [JsonSerializable(typeof(IReadOnlyList<AccountSettings>))]
 [JsonSerializable(typeof(PublicFreeSettings))]
+[JsonSerializable(typeof(FreeFirstSettings))]
 public sealed partial class AccountsSettingsJsonContext : JsonSerializerContext;

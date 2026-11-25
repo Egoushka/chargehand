@@ -771,6 +771,27 @@ PublicFreeGate? PublicFree(IWorkerRuntime runtime)
     });
 }
 
+/// <summary>Free models first (ADR 0103): the OpenCode server of the profile's <c>opencode</c> block as the runtime of free attempts, whatever the server runtime is. A server that cannot be reached
+/// turns the feature off for this process with a warning, so every run uses its own model.</summary>
+async Task<FreeFirstGate?> FreeFirst(IWorkerRuntime paid)
+{
+    if (profile.FreeFirst is not { } settings || profile.Opencode is not { } oc)
+        return null;
+    try
+    {
+        IWorkerRuntime free = paid is OpenCodeWorkerRuntime
+            ? paid
+            : await OpenCodeWorkerRuntime.ConnectAsync(new OpenCodeClient(new HttpClient { BaseAddress = new Uri(oc.Url) }, profile.Secret(oc.PasswordSecret)), oc.Version, ct);
+        var token = settings.GithubTokenSecret is { } item ? profile.Secret(item) : null;
+        return new FreeFirstGate(profile, settings, new GitHubRepositoryVisibility(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, token), free, message => Console.Error.WriteLine($"chargehand: {message}"));
+    }
+    catch (Exception e) when (e is ChargehandException or HttpRequestException or InvalidOperationException)
+    {
+        Console.Error.WriteLine($"chargehand: free_first is off: the OpenCode server is not usable ({e.Message})");
+        return null;
+    }
+}
+
 async Task<int> Serve()
 {
     if (profile.Http is not { } http)
@@ -798,7 +819,7 @@ async Task<int> Serve()
     using var peerClones = PeerClones();
     var events = EventLog(http.Events);
     var orchestrator = new Orchestrator(profile, runtime, runtimeVersion, root, runLog, await PromptVersions(), Memory(), services, enhancer: Enhancer(), runtimeFor: runtimeFor,
-        publicFree: PublicFree(runtime), reuseReviews: true, peerClones: peerClones, events: events?.Log);
+        publicFree: PublicFree(runtime), reuseReviews: true, peerClones: peerClones, events: events?.Log, freeFirst: await FreeFirst(runtime));
     var drivenRun = DrivenRunFor(orchestrator);
     var app = ChargehandServer.Create(new ServerSettings(http.Port, profile.Secret(http.ApiKeySecret), Path.Combine(root, "presets"),
         http.Listen, http.AllowedHosts, http.MaxConcurrentRuns, profile.Driven?.MaxSessionCalls ?? 2,
