@@ -174,6 +174,16 @@ public class FreeFirstRunTests
     }
 
     [Fact]
+    public void A_free_usage_limit_is_recorded_as_a_rate_limit_whatever_code_the_run_ended_with()
+    {
+        var failed = Runs.Completed() with { Status = ResultStatus.Failed, Error = new ResultError(ErrorCode.Internal, "worker reported failed: Free usage limit reached. Connect a provider", false) };
+        Assert.Equal("failed:rate_limited", FreeFirstGate.Outcome(failed));
+        Assert.Equal("failed:internal", FreeFirstGate.Outcome(failed with { Error = new ResultError(ErrorCode.Internal, "boom", false) }));
+        Assert.Equal("completed", FreeFirstGate.Outcome(Runs.Completed()));
+        Assert.True(FreeFirstGate.FallsThrough(failed));
+    }
+
+    [Fact]
     public void Only_a_failed_result_gives_way_and_a_cancel_or_a_cost_cap_stays()
     {
         ResultContract Failed(ErrorCode code) => Runs.Completed() with { Status = ResultStatus.Failed, Error = new ResultError(code, "x", false) };

@@ -15,7 +15,6 @@ public class ResultErrorTests
         { new ChargehandException(ErrorCode.RuntimeUnavailable, "the OpenCode server is not reachable", "Start it: scripts/opencode-serve.sh <binary> <config> 4096"), ErrorCode.RuntimeUnavailable },
         { new OpenCodeException(HttpStatusCode.ServiceUnavailable, "ServiceUnavailableError", "ConnectionRefused"), ErrorCode.ProviderUnavailable },
         { new OpenCodeException(HttpStatusCode.ServiceUnavailable, "ServiceUnavailableError", "Rate limit exceeded"), ErrorCode.RateLimited },
-        { new OpenCodeException(HttpStatusCode.TooManyRequests, "FreeUsageLimitError", "Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going"), ErrorCode.RateLimited },
         { new InvalidOperationException("claude -p exited 1: API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}"), ErrorCode.RateLimited },
         { new InvalidOperationException("something else"), ErrorCode.Internal },
     };

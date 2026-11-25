@@ -27,13 +27,13 @@ public partial class ChargehandException(ErrorCode code, string message, string?
     /// layer cannot reference.</summary>
     public static bool BudgetRefused(string? message) => message is not null && BudgetText().IsMatch(message);
 
-    /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") Claude Code (rate_limit_error, 429) or the free OpenCode models ("Free usage limit reached").</summary>
+    /// <summary>A gateway or provider rate limit, as relayed by OpenCode ("Rate limit exceeded") or Claude Code (rate_limit_error, 429).</summary>
     public static bool RateLimited(string? message) => message is not null && RateLimitText().IsMatch(message);
 
     /// <summary>Provider and gateway error text without keys, key aliases, bearer tokens and spend figures (<see cref="Redaction.Scrub"/>).</summary>
     public static string Scrub(string text) => Redaction.Scrub(text);
 
-    [GeneratedRegex(@"rate[ _]limit|free usage limit|usage limit reached|\b429\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"rate[ _]limit|\b429\b", RegexOptions.IgnoreCase)]
     private static partial Regex RateLimitText();
 
     [GeneratedRegex(@"\b(?:status|http|error)\b[\s:=]*402\b|\b402\b[\s:]*(?:payment required|budget)|payment required|budget has been exceeded", RegexOptions.IgnoreCase)]
