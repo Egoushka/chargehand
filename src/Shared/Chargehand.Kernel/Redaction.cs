@@ -25,7 +25,7 @@ public static partial class Redaction
     [GeneratedRegex(@"(?<k>\b(?:\w*(?:key|alias|token|hash|authorization|organization)\w*|team_?member|team_?alias|user_?id|end_?user)\b["")]*\s*[:=]\s*[""(]*)(?!(?:bearer|basic)\b)[^\s,)""]+", RegexOptions.IgnoreCase)]
     private static partial Regex Named();
 
-    [GeneratedRegex(@"\b(?<scheme>bearer|basic)\s+[A-Za-z0-9._~+/=-]+", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(?<scheme>bearer|basic)\s+[A-Za-z0-9._~+/=_-]+", RegexOptions.IgnoreCase)]
     private static partial Regex AuthScheme();
 
     [GeneratedRegex(@"(?<k>\b(?:current cost|max budget|spend|budget)\s*[=:]\s*)\$?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?", RegexOptions.IgnoreCase)]

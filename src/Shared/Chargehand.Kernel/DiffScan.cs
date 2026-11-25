@@ -117,7 +117,7 @@ public static partial class DiffScan
     [GeneratedRegex(@"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|(?=\x22)|$)", RegexOptions.Singleline)]
     private static partial Regex PrivateKeyBlock();
 
-    [GeneratedRegex(@"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,}")]
+    [GeneratedRegex(@"gh[pousr]_[A-Za-z0-9_.-]{36,}|github_pat_[A-Za-z0-9_]{50,}")]
     private static partial Regex GithubToken();
 
     [GeneratedRegex(@"sk-ant-[A-Za-z0-9_-]{20,}")]
