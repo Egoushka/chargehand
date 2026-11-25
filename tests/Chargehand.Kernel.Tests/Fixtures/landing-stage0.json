@@ -1,0 +1,19 @@
+{
+  "recorded": "2026-11-25",
+  "host": "github.com, a personal account, a private throwaway repository (deleted afterwards)",
+  "app": "chargehand-integrator, installed on all repositories of the account, one-repository installation token",
+  "steps": {
+    "createBlobTreeCommit": 201,
+    "createBranch": 201,
+    "openDraftPullRequest": 201,
+    "markReadyForReview": "ok",
+    "enableAutoMerge": "refused: Auto merge is not allowed for this repository (a repository setting, not the App)",
+    "mergePullRequest": 200,
+    "pushNotesIntentRef": 201,
+    "pushRevertBranch": 201,
+    "openAndMergeRevertPullRequest": [201, 200],
+    "mergeQueueRulesetAsApp": 403,
+    "mergeQueueRulesetAsOwner": "422 Invalid rule 'merge_queue' (a ruleset with a deletion rule was accepted on the same repository)"
+  },
+  "token": { "length": 390, "prefix": "ghs_", "appIdSegment": 7, "dots": 2, "dashes": 1, "underscores": 5, "otherCharacters": 0 }
+}

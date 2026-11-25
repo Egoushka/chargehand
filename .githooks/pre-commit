@@ -9,7 +9,7 @@ if ! command -v betterleaks >/dev/null 2>&1; then
   echo "pre-commit: betterleaks is not installed (brew install betterleaks)." >&2
   exit 1
 fi
-betterleaks git --staged --redact --no-banner --disable-rule generic-password,generic-credential-uri -v >/dev/null || {
+betterleaks git --staged -c .githooks/betterleaks.toml --redact --no-banner --disable-rule generic-password,generic-credential-uri -v >/dev/null || {
   echo "pre-commit: betterleaks found a secret in staged changes (rerun: betterleaks git --staged -v)." >&2
   exit 1
 }

@@ -1,0 +1,10 @@
+title = "stateless GitHub App installation token"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "github-app-token-stateless"
+description = "GitHub App installation token since 2026-10-02: ghs_<app id>_<JWT-shaped body>, 390 to 520 characters"
+regex = '''ghs_[0-9]{4,12}_[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'''
+keywords = ["ghs_"]

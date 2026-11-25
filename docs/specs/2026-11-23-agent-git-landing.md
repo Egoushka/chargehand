@@ -123,6 +123,39 @@ choosing between: moving the repositories to an organisation the owner controls;
 tokens scoped to one repository (which keeps a PAT and fails stage 1's PAT check); or landing straight to `main` with
 the App under a ruleset that requires the checks (no pull request). The choice is the maintainer's.
 
+**Results (run live 2026-11-25, fixture `tests/Chargehand.Kernel.Tests/Fixtures/landing-stage0.json`, probe `scripts/landing-preconditions.mjs`).**
+The chargehand integrator App was used against a private throwaway repository on the personal account (created and deleted by the run),
+with a one-repository installation token.
+
+1. **Pass.** The App opened a draft PR (201), marked it ready, merged it (200), pushed `refs/notes/intent` (201), pushed a revert branch
+   and opened and merged the revert PR (201, 200). The report that an App cannot open PRs on a personal account does not hold for an App
+   installed on all of the account's repositories with `pull_requests: write` and `contents: write`. `enablePullRequestAutoMerge` was
+   refused with "Auto merge is not allowed for this repository": that is the repository's `allow_auto_merge` setting, so the landing
+   service enables it per repository or merges directly. Open question 4 is answered: `refs/notes/intent` is accepted with an App token.
+2. **Fail, then fixed.** The real token is `ghs_<7-digit app id>_<JWT-shaped body>`: 390 characters for a one-repository token with this
+   App's permissions (up to about 520 in other shapes), with `_`, `-` and two `.` inside. Patterns of the form `gh[pousr]_[A-Za-z0-9]{N,}`
+   stop at the underscore after the app id and match nothing. Checked with synthetic tokens of the same shape:
+
+   | Place | Before | After |
+   |---|---|---|
+   | chargehand `DiffScan` (push scan, transcript redaction) | no match | PR: this one |
+   | chargehand `Redaction.Scrub` after `Bearer` | redacted only `ghs`, left the tail | PR: this one |
+   | betterleaks default rules | no match | rule `github-app-token-stateless` in `.githooks/betterleaks.toml`, this PR |
+   | `bin/llm-guard.py`, `src/hookd/Guard.cs` | no match | workspace PR (see #1071) |
+   | Bifrost guard `masker.go`, qmd `mirror.mjs` (the path to Langfuse) | no match | homelab PR (see #1071) |
+   | `bin/leak-guard.py` | not a secret scanner (employer terms only); a token neither trips nor is altered | none needed |
+   | HTTP `Authorization` header, GitHub API | accepted, not truncated (every call above used it) | none needed |
+   | Langfuse | no redactor of its own; LiteLLM keeps message content off (`turn_off_message_logging`), and Bifrost's masker runs before it | UNKNOWN whether Langfuse truncates a 520-character string in a stored field; not tested to avoid writing to production traces |
+
+   Other repositories carry the same pattern (claude-mods, wheelhouse daemon, chronicle-public, JARVIS, tin, feed-eater, agent-skills):
+   listed on #1071, not part of the landing path.
+3. **Fail, with the named fallback.** A `merge_queue` ruleset is rejected on the user-owned repository (422 "Invalid rule
+   'merge_queue'"; a control ruleset with a `deletion` rule was accepted on the same repository, and the App gets 403 for rulesets). A
+   merge queue is not available here, so the landing service's own one-at-a-time merge stays, as the spec says it does.
+
+**Verdict.** Items 1 and 2 pass (2 after the pattern fixes above); item 3 fails with the fallback already in the design. Stage 1 may
+start. `chargehand landing preconditions` as a CLI command is stage 1 work; until then the probe script is the live check.
+
 ### Stage 1: the landing service
 
 **The call.** `land` takes a `landing/v1` request:
@@ -353,13 +386,10 @@ condition. Every target below is a starting value.
 
 ## Open questions
 
-1. Can an App installed on a personal account open and merge pull requests? Stage 0 item 1 decides; the fallbacks are
-   listed there.
-2. Does any redactor or store on the token path miss or truncate 520-character stateless tokens? `DiffScan` already
-   misses them. Stage 0 item 2 checks the rest.
-3. Does GitHub's merge queue work on a user-owned repository? Stage 0 item 3 decides. If it does, it replaces the
-   service's own serial merge.
-4. Does GitHub accept and keep `refs/notes/intent` pushed with an App token? Stage 0 item 1 decides; the fallback is
-   trailers only.
+1. Answered 2026-11-25 (stage 0 results): yes, an App installed on the personal account opens and merges pull requests.
+2. Answered 2026-11-25: every pattern checked missed them; fixed (table in stage 0). Open: whether Langfuse truncates a long stored field (UNKNOWN).
+3. Answered 2026-11-25: no. The service's own serial merge stays.
+4. Answered 2026-11-25: GitHub accepts a `refs/notes/intent` ref pushed with an App token (201). Whether it keeps it across a squash merge is a stage 2 check.
 5. How does the laptop reach the lease API when it is offline? Proposed answer: leases from an offline host expire,
    and the reaper only snapshots on that host when it is back, never removes from afar. To be confirmed in task 3.
+6. Scope: the owner also asked for a "better git experience" for himself (session 01M858J7G1Y5AAMBQS6NPEPMZ3, wheelhouse). This spec covers agent actions only (humans appear as the reviewer of intent and in the lease view). Whether a human-facing git tool (his own commits, status, undo) belongs in this work is open.
