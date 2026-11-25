@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.32](https://github.com/Egoushka/chargehand/compare/v0.19.31...v0.19.32) (2026-11-25)
+
+
+### Features
+
+* **automation:** board producer turns planned wheelhouse items into pool items (A7) ([#1082](https://github.com/Egoushka/chargehand/issues/1082)) ([d61f338](https://github.com/Egoushka/chargehand/commit/d61f338dd37c66616e6c484d4df514f02215e7d5)), closes [#1080](https://github.com/Egoushka/chargehand/issues/1080)
+
 ## [0.19.31](https://github.com/Egoushka/chargehand/compare/v0.19.30...v0.19.31) (2026-11-25)
 
 
