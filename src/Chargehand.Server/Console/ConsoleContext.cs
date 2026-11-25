@@ -61,6 +61,10 @@ internal sealed class ConsoleContext(ServerSettings settings, RunService runs, I
     public async Task<IReadOnlyList<LearningEntry>> LearningAsync(CancellationToken ct, bool includeBench = false) =>
         driven?.Learning is { } store ? await store.ReadAsync(ct, includeBench) : [];
 
+    /// <summary>The human commits classified from merged-edited pull requests (issue #452); empty when the server keeps none.</summary>
+    public async Task<IReadOnlyList<HumanEditCommit>> HumanEditsAsync(CancellationToken ct) =>
+        driven?.HumanEdits is { } store ? await store.ReadAsync(ct) : [];
+
     /// <summary>The integrator's policy for a remote repository; off when the profile has none.</summary>
     public IntegrationMode IntegrationOf(RemoteRepository? remote) =>
         remote is not null && Profile?.Driven?.Integrator is { } integrator ? new IntegratorPolicy(integrator).Resolve(remote) : IntegrationMode.Off;
