@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The contract package
 (`Chargehand.Contracts`) is versioned separately, by schema major.
 
+## [0.19.31](https://github.com/Egoushka/chargehand/compare/v0.19.30...v0.19.31) (2026-11-25)
+
+
+### Features
+
+* **landing:** stage 0 preconditions, results and stateless-token redaction ([#1074](https://github.com/Egoushka/chargehand/issues/1074)) ([7df182c](https://github.com/Egoushka/chargehand/commit/7df182c1a2aec3b667f8293fc35fed6678d8f931)), closes [#1071](https://github.com/Egoushka/chargehand/issues/1071)
+
+
+### Bug Fixes
+
+* **free-first:** a free usage limit is a rate limit, and a failed attempt records its error ([#1073](https://github.com/Egoushka/chargehand/issues/1073)) ([5b2f88d](https://github.com/Egoushka/chargehand/commit/5b2f88da42c9f1a326183236bd9808aaba24dd39))
+
 ## [0.19.30](https://github.com/Egoushka/chargehand/compare/v0.19.29...v0.19.30) (2026-11-25)
 
 
