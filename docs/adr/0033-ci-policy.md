@@ -56,8 +56,11 @@ Option 3.
 
 ## Amendment 2026-11-25
 
-- `ci.yml` runs on pull requests only. A squash merge lands the tree the pull request already tested, and the push run on
-  main re-ran the ~25 min suite (8 runs a week). `release-please.yml` and `release.yml` do not read `ci`; the ruleset
-  requires `ci-gate` and `prompt-ci` on the pull request.
+- Owner pull requests (same repository, human author) run no `ci.yml` job. Their gate is the `fast-tier` commit status that
+  `ws ship` posts after the local fast tier (`scripts/check.sh`, lefthook hooks: secret scan, Conventional Commits) passes.
+  Fork and bot pull requests (Dependabot, release-please) still run every job, and `ci-gate` posts `fast-tier` for the
+  same-repository bot ones. The full suite runs once, on push to main. Dependency review no longer runs on owner pull
+  requests (no local equivalent); it still runs on Dependabot and fork pull requests.
+- Required status checks: `ci-gate` + `prompt-ci` become `fast-tier` + `prompt-ci`. `prompt-ci` still posts its own status.
 - `dotnet format` is its own `format` job, in `ci-gate`'s `needs`, so it runs beside build and test.
 - `sonar.yml` is deleted: its 100 recorded runs all skipped the analysis step; nothing was ever sent to SonarQube.
