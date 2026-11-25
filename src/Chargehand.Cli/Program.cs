@@ -364,6 +364,8 @@ switch (argv)
         return await EvalSupport(examplesFile);
     case ["eval", "score-claims", var claimsFile, .. var scoreOptions]:
         return await EvalScoreClaims(claimsFile, scoreOptions);
+    case ["eval", "bounty", var seedFile, .. var bountyOptions]:
+        return await EvalBounty(seedFile, bountyOptions);
     case ["eval", "levers", .. var options]:
         return await EvalLevers(options);
     case ["eval", "gate", var baseRoot, var changeRoot, .. var options]:
@@ -494,6 +496,51 @@ async Task<int> EvalScoreClaims(string claimsFile, IReadOnlyList<string> options
     Console.WriteLine($"judge model: {profile.IntakeModel ?? "the runtime's default"}");
     Console.WriteLine(ClaimScorer.Report(scored));
     return scored.Any(s => s.Outcome == ClaimOutcome.Unchecked) ? 1 : 0;
+}
+
+/// <summary>docs/specs/2026-11-11-claim-bounty.md, issue #787: seeds <paramref name="seedFile"/>'s claims into the queue next to
+/// the run log, runs the <c>disprove</c> preset once per open claim against <c>--repo</c> at <c>--commit</c>, and prints the
+/// outcome counts. A disproof that earns a point appends one line to the bounty ledger next to the queue.</summary>
+async Task<int> EvalBounty(string seedFile, IReadOnlyList<string> options)
+{
+    string? Option(string name) => options.SkipWhile(o => o != name).Skip(1).FirstOrDefault();
+    if (Option("--repo") is not { } repoOption || Option("--commit") is not { } commit)
+    {
+        Console.Error.WriteLine("usage: eval bounty <seed.jsonl> --repo <dir> --commit <sha> [--queue <claims.jsonl>] [--bounty <bounty.jsonl>] [--lease-minutes <n>]");
+        return 2;
+    }
+    var repo = Path.GetFullPath(repoOption);
+    var stateDirectory = Path.GetDirectoryName(Path.GetFullPath(runLogPath))!;
+    var queue = new ClaimQueue(Path.GetFullPath(Option("--queue") ?? Path.Combine(stateDirectory, "claims.jsonl")));
+    var ledger = new BountyLedger(Path.GetFullPath(Option("--bounty") ?? Path.Combine(stateDirectory, "bounty.jsonl")));
+    var lease = TimeSpan.FromMinutes(Option("--lease-minutes") is { } m ? double.Parse(m, CultureInfo.InvariantCulture) : 20);
+    await queue.SeedAsync(ClaimSeeds.Read(File.ReadLines(seedFile)), ct);
+
+    var (runtime, _) = await Connect();
+    var preset = Preset.Load(Path.Combine(root, "presets"), "disprove");
+    var (kindName, kind) = Orchestrator.AnswerKind(preset);
+    var blocks = new PromptRegistry(Path.Combine(root, "prompts")).ForNode("disprove", kindName);
+    var workerModel = Orchestrator.ParseModel(profile.ResolveModel(kind.Model));
+    var scope = new EvidenceScope(repo, commit, new HashSet<string>(), new HashSet<string>(), "", []);
+
+    async Task<string> Disprove(ClaimRecord claim, CancellationToken token)
+    {
+        var session = await runtime.CreateAsync(new NodeSpec(repo, kind.OpencodeAgent, workerModel, kind.Rules, new Dictionary<string, string>()), token);
+        await runtime.SetInstructionAsync(session.Id, "chargehand-core", blocks[0].Text, token);
+        await runtime.SetInstructionAsync(session.Id, "chargehand-preset", blocks[1].Text, token);
+        await runtime.SubmitAsync(session.Id, $"Claim (repository commit {claim.Commit}):\n{claim.Text}\n", token);
+        await runtime.AwaitIdleAsync(session.Id, token);
+        var messages = await runtime.ReadMessagesAsync(session.Id, token);
+        return messages.FirstOrDefault(msg => msg.Kind == WorkerMessageKind.Assistant && !string.IsNullOrEmpty(msg.Text))?.Text ?? "";
+    }
+
+    var counts = new Dictionary<DisproofOutcome, int>();
+    while (await ClaimBounty.RunOnceAsync(queue, ledger, runtime, Orchestrator.ParseModel(profile.IntakeModel), Disprove, scope, "disprove", lease, ct) is { } outcome)
+        counts[outcome] = counts.GetValueOrDefault(outcome) + 1;
+    foreach (var o in Enum.GetValues<DisproofOutcome>())
+        if (counts.TryGetValue(o, out var n))
+            Console.WriteLine($"{o.ToString().ToLowerInvariant()}: {n}");
+    return 0;
 }
 
 /// <summary>Driven sessions (ADR 0039): null while the profile has them off, so nothing about containers is read or connected.</summary>
