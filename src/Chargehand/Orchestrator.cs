@@ -291,7 +291,7 @@ public sealed class Orchestrator(
             }
             if (freeFirst is not null && ranModel is not null)
             {
-                attempts.Add(new RunAttempt(ranModel, ranRuntime!, freeNow is not null, FreeFirstGate.Outcome(result)));
+                attempts.Add(new RunAttempt(ranModel, ranRuntime!, freeNow is not null, FreeFirstGate.Outcome(result), FreeFirstGate.Detail(result)));
                 if (freeNow is not null && FreeFirstGate.FallsThrough(result))
                 {
                     // A free attempt wrote nothing (writing nodes are never offered), so the next model runs the same request from the start.

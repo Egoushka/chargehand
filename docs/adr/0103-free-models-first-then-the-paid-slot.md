@@ -41,6 +41,7 @@ The run record gets `attempts` (model, runtime, free, outcome) and `free_first` 
   catches the failure. The deployment's copy changes by pull request.
 - The OpenCode server is another container to run, pinned to a version the adapter was checked against (the profile's `opencode.version`).
 - Public text says nothing about which models are on the list; the list is configuration.
+- The free OpenCode models answer "Free usage limit reached" (429) once an egress address has used its anonymous allowance; the first live run met it on both private-tier models and fell back to the paid slot, as designed. Such an answer is classed `rate_limited`, and a failed attempt records its error text.
 - The `critic` class is mapped but unused: no code reads a preset's critic block yet.
 
 ## Reopen if

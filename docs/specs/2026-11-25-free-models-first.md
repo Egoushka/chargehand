@@ -76,7 +76,7 @@ and its outcome is the run's. A run on a repository that does not qualify, or wi
 only, as today.
 
 **D6. The run log says which model ran.** `CallRecord.Model` already carries the model of each call. The run record gets
-`attempts`: the model, its runtime (`opencode` or `claude_code`), whether it is free and how the attempt ended, in order,
+`attempts`: the model, its runtime (`opencode` or `claude_code`), whether it is free, how the attempt ended and, for a failed one, the first 200 characters of its scrubbed error, in order,
 so a fallback is visible. The `free_first` decision (class, tier, models offered, or the reason for none) is recorded
 too. Additive: no schema major changes.
 

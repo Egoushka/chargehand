@@ -169,7 +169,8 @@ public sealed record RunRecord(
 /// <param name="Model">The model the attempt's worker ran on, as <c>provider/model</c>; <c>auto</c> when the runtime picked it.</param>
 /// <param name="Runtime"><c>opencode</c> for a free model, <c>claude_code</c> or the profile's own runtime for the paid slot.</param>
 /// <param name="Outcome"><c>completed</c>, or the status of the result that ended it (<c>failed:rate_limited</c>, ...); a free attempt that failed is followed by the next.</param>
-public sealed record RunAttempt(string Model, string Runtime, bool Free, string Outcome);
+/// <param name="Detail">The scrubbed first 200 characters of the error of a failed attempt, so a fallback can be told from a bug without reading the whole run.</param>
+public sealed record RunAttempt(string Model, string Runtime, bool Free, string Outcome, string? Detail = null);
 
 /// <summary>Who paid for a run and on what (ADR 0095): the router reads each pool's spend back from these.</summary>
 /// <param name="DataClass">The class of the data the run touched (<c>public</c>, <c>owner_private</c>, <c>restricted</c>) that the router gated the model by; null on a record from before it existed.</param>

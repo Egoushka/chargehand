@@ -43,6 +43,15 @@ public sealed class FreeFirstGate(Profile profile, FreeFirstSettings settings, I
     public static string Outcome(ResultContract result) =>
         result.Status == ResultStatus.Failed ? $"failed:{Snake(result.Error?.Code)}" : result.Status.ToString().ToLowerInvariant();
 
+    /// <summary>What went wrong in a failed attempt, scrubbed of keys and cut short; null when it did not fail.</summary>
+    public static string? Detail(ResultContract result)
+    {
+        if (result.Status != ResultStatus.Failed || result.Error?.Message is not { Length: > 0 } message)
+            return null;
+        var clean = Kernel.ChargehandException.Scrub(message);
+        return clean.Length > 200 ? clean[..200] : clean;
+    }
+
     private static string Snake(ErrorCode? code) =>
         code is null ? "unknown" : string.Concat(code.Value.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
 }

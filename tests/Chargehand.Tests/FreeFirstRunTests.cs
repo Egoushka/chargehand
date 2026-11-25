@@ -82,7 +82,7 @@ public class FreeFirstRunTests
         Assert.Equal("p/small", $"{rig.Paid.Created.Single().Model!.ProviderId}/{rig.Paid.Created.Single().Model!.ModelId}");
         Assert.Equal(
             [new RunAttempt("zen/alpha-free", "ScriptedRuntime", true, "failed:rate_limited"), new RunAttempt("zen/beta-free", "ScriptedRuntime", true, "failed:rate_limited"), new("p/small", "ScriptedRuntime", false, "completed")],
-            (await Record(rig)).Attempts);
+            (await Record(rig)).Attempts!.Select(a => a with { Detail = null }));
     }
 
     [Fact]
@@ -97,6 +97,8 @@ public class FreeFirstRunTests
         Assert.Equal(ResultStatus.Completed, result.Status);
         Assert.Empty(rig.Paid.Created);
         Assert.Equal(["failed:rate_limited", "completed"], (await Record(rig)).Attempts!.Select(a => a.Outcome));
+        Assert.Contains("Rate limit", (await Record(rig)).Attempts![0].Detail, StringComparison.Ordinal);
+        Assert.Null((await Record(rig)).Attempts![1].Detail);
         Assert.Equal(["zen/alpha-free", "zen/beta-free"], (await Record(rig)).Attempts!.Select(a => a.Model));
     }
 
