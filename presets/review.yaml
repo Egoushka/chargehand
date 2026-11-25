@@ -3,7 +3,7 @@
 # Read-only like every preset (ADR 0006).
 schema: preset/v1
 name: review
-version: 0.1.0
+version: 0.2.0
 allowed_actions: [answer]
 node_kinds:
   worker:
@@ -25,6 +25,9 @@ node_kinds:
       - { action: question, resource: "*", effect: deny }
       - { action: subagent, resource: "*", effect: deny }
     budget: { max_input_tokens: 400000, max_usd: 1.00 }
-    compaction: { auto: true, keep_tokens: 15000, buffer: 120000 }
+    # trigger_tokens (issue #449): without it the session never compacts mid-turn, so a large diff plus the
+    # surrounding reads it takes to check it just grows until max_input_tokens cuts the review off. 60000 matches
+    # cheap's and public-free's trigger at the same max_input_tokens.
+    compaction: { auto: true, keep_tokens: 15000, buffer: 120000, trigger_tokens: 60000 }
 critic: { enabled: false }
 approval: {}
