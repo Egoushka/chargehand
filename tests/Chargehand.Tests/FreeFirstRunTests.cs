@@ -82,7 +82,7 @@ public class FreeFirstRunTests
         Assert.Equal("p/small", $"{rig.Paid.Created.Single().Model!.ProviderId}/{rig.Paid.Created.Single().Model!.ModelId}");
         Assert.Equal(
             [new RunAttempt("zen/alpha-free", "ScriptedRuntime", true, "failed:rate_limited"), new RunAttempt("zen/beta-free", "ScriptedRuntime", true, "failed:rate_limited"), new("p/small", "ScriptedRuntime", false, "completed")],
-            (await Record(rig)).Attempts);
+            (await Record(rig)).Attempts!.Select(a => a with { Detail = null }));
     }
 
     [Fact]
@@ -97,6 +97,8 @@ public class FreeFirstRunTests
         Assert.Equal(ResultStatus.Completed, result.Status);
         Assert.Empty(rig.Paid.Created);
         Assert.Equal(["failed:rate_limited", "completed"], (await Record(rig)).Attempts!.Select(a => a.Outcome));
+        Assert.Contains("Rate limit", (await Record(rig)).Attempts![0].Detail, StringComparison.Ordinal);
+        Assert.Null((await Record(rig)).Attempts![1].Detail);
         Assert.Equal(["zen/alpha-free", "zen/beta-free"], (await Record(rig)).Attempts!.Select(a => a.Model));
     }
 
@@ -169,6 +171,16 @@ public class FreeFirstRunTests
         var record = (await log.ReadAllAsync(CancellationToken.None)).Runs.Single();
         Assert.Null(record.Attempts);
         Assert.Null(record.FreeFirst);
+    }
+
+    [Fact]
+    public void A_free_usage_limit_is_recorded_as_a_rate_limit_whatever_code_the_run_ended_with()
+    {
+        var failed = Runs.Completed() with { Status = ResultStatus.Failed, Error = new ResultError(ErrorCode.Internal, "worker reported failed: Free usage limit reached. Connect a provider", false) };
+        Assert.Equal("failed:rate_limited", FreeFirstGate.Outcome(failed));
+        Assert.Equal("failed:internal", FreeFirstGate.Outcome(failed with { Error = new ResultError(ErrorCode.Internal, "boom", false) }));
+        Assert.Equal("completed", FreeFirstGate.Outcome(Runs.Completed()));
+        Assert.True(FreeFirstGate.FallsThrough(failed));
     }
 
     [Fact]

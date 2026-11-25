@@ -68,6 +68,7 @@ names, budgets, absolute home paths, session or message ids, API keys, prompts f
   variable instead (`--ignore-pnpmfile` itself works).
 - On the devbox, `/tmp`, `~/.cache` and rustup are wiped on deploy or restart: keep state under `/home/node/work`.
 - `gh pr checks` fails with the devbox token: use `gh run list --commit <sha>` or `ws wait`.
+- `free_first` (ADR 0103): the deployed list is a copy kept in the deployment's own repository, so a grade change reaches the server by a pull request there. A free model's answer "Free usage limit reached" arrives as a failed result and falls through to the next model, which is the point; test fall-through with `ScriptedRuntime.GenerateFailures`. The fence (`FreeFence`) splits paths on `/` only (a backslash is part of a name on Linux) and follows links inside links; keep both when you touch it.
 - Never `pkill -f` or `pgrep -f` with a pattern that appears in your own command line; it matches your own shell.
 
 - `.claude/worktrees/agent-*` in a checkout come from Claude Code subagents, not from chargehand, and pile up (about 4 GB/day on nickel). `scripts/sweep-worktrees.sh [--apply] [repo]` removes the clean ones already in origin/main (ancestor or patch-id match); squash-merged ones it keeps, remove those by hand.

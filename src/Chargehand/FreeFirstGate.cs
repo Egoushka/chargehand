@@ -40,8 +40,21 @@ public sealed class FreeFirstGate(Profile profile, FreeFirstSettings settings, I
             ErrorCode.RateLimited or ErrorCode.ProviderUnavailable or ErrorCode.RuntimeUnavailable or ErrorCode.RuntimeVersionMismatch or ErrorCode.InvalidResult
             or ErrorCode.VerificationFailed or ErrorCode.SessionFailed or ErrorCode.SessionStalled or ErrorCode.DeadlineExceeded or ErrorCode.IntakeFailed or ErrorCode.Internal;
 
+    /// <summary>How an attempt ended, for the run record. The free OpenCode models' "Free usage limit reached" is a rate limit here, though the shared check (<c>ChargehandException.RateLimited</c>)
+    /// leaves that wording alone for driven sessions, so the run's own error code stays as it was.</summary>
     public static string Outcome(ResultContract result) =>
-        result.Status == ResultStatus.Failed ? $"failed:{Snake(result.Error?.Code)}" : result.Status.ToString().ToLowerInvariant();
+        result.Status != ResultStatus.Failed ? result.Status.ToString().ToLowerInvariant()
+        : result.Error?.Message?.Contains("Free usage limit", StringComparison.OrdinalIgnoreCase) == true ? "failed:rate_limited"
+        : $"failed:{Snake(result.Error?.Code)}";
+
+    /// <summary>What went wrong in a failed attempt, scrubbed of keys and cut short; null when it did not fail.</summary>
+    public static string? Detail(ResultContract result)
+    {
+        if (result.Status != ResultStatus.Failed || result.Error?.Message is not { Length: > 0 } message)
+            return null;
+        var clean = Kernel.ChargehandException.Scrub(message);
+        return clean.Length > 200 ? clean[..200] : clean;
+    }
 
     private static string Snake(ErrorCode? code) =>
         code is null ? "unknown" : string.Concat(code.Value.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
